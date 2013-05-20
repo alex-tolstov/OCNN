@@ -7,6 +7,8 @@
 #include <set>
 
 
+namespace voronoi {
+
 void check(bool e) {
 	if (!e) {
 		throw std::string("JOPKA");
@@ -106,11 +108,59 @@ public:
 	std::string prints();
 };
 
+int signum(float value);
+
+struct PointComparatorY : public std::binary_function<Point, Point, bool> {
+	bool operator() (const Point &first, const Point &second) {
+		int signY = signum(first.y - second.y);
+		if (signY != 0) {
+			return signY < 0;
+		} else {
+			return signum(first.x - second.x) < 0;
+		}
+	}
+};
+
+struct PointComparatorX : public std::binary_function<Point, Point, bool> {
+	bool operator() (const Point &o1, const Point &o2) {
+		return o1.x < o2.x;
+	}
+};
+
 struct Breakpoint {
 	Point point;
 	Triple triple;
 	
 	Breakpoint(const Point &point, const Triple &triple);
+};
+
+struct NeighborsList {
+	Point site;
+	std::set<Point, PointComparatorY> nextToThis;
+
+	NeighborsList(Point site)
+		: site(site)
+	{
+	}
+
+	void add(Point next) {
+		nextToThis.insert(next);
+	}
+
+	double getAverageDistance() {
+		if (nextToThis.size() == 0) {
+			return 0;
+		}
+		double distance = 0.0;
+		for (std::set<Point, PointComparatorY>::iterator it = nextToThis.begin(); it != nextToThis.end(); ++it) {
+			distance += it->distanceTo(site);
+		}
+		return distance / (nextToThis.size() + 0.0);
+	}
+
+	bool operator < (const NeighborsList &second) const {
+		return PointComparatorY()(this->site, second.site);
+	}
 };
 
 struct BreakpointComp : public std::binary_function<Breakpoint, Breakpoint, bool> {
@@ -119,4 +169,6 @@ struct BreakpointComp : public std::binary_function<Breakpoint, Breakpoint, bool
 
 Point* LOWEST();
 
-#endif // SIMPLE_MATH_H
+} // namespace voronoi
+
+#endif // SIMPLE_MATH_H_

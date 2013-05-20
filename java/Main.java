@@ -352,7 +352,12 @@ public class Main {
 			if (signY != 0) {
 				return signY;
 			} else {
-				return (int)Math.signum(this.point.x - that.point.x);
+				int signX = (int)Math.signum(this.point.x - that.point.x);
+				if (signX != 0) {
+					return signX;
+				} else {
+					return this.triple.hashCode() - that.triple.hashCode();
+				}
 			}
 		}
 	}
@@ -437,8 +442,28 @@ public class Main {
 	
 	static Point LOWEST = Point.getLowestPoint();
 	
+	static class NeighborsList implements Comparable<NeighborsList> {
+		TreeSet<Point> nearest = new TreeSet<Point>(Point.comparatorY);
+		Point site;
+		
+		NeighborsList(Point p) {
+			this.site = p;
+		}
+		
+		void add(Point near) {
+			nearest.add(near);
+		}
+		
+		@Override
+		public int compareTo(NeighborsList that) {
+			return Point.comparatorY.compare(this.site, that.site);
+		}
+	}
+	
+	
 	static class VoronoiFortuneComputing {
 		TreeSet<Point> ans = new TreeSet<Main.Point>(Point.comparatorY);
+		TreeSet<NeighborsList> adjList = new TreeSet<Main.NeighborsList>();
 		
 		VoronoiFortuneComputing(Point p[]) {
 			Arrays.sort(p, Point.comparatorY);
@@ -451,14 +476,17 @@ public class Main {
 				if (breakpoints.size() != 0) {
 					Breakpoint top = breakpoints.first();
 					if (currIdx != p.length) {
+//						if (top.point.y == p[currIdx].y && Math.abs(top.point.x - p[currIdx].x) < EPS) {
+//							this.processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y, p[currIdx]);
+//						} else
 						if (top.point.y <= p[currIdx].y) {
-							this.processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y);
+							this.processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y, p[currIdx]);
 						} else {
 							this.processSiteEvent(p[currIdx], breakpoints, beachArcs);
 							currIdx++;
 						}
 					} else {
-						this.processVertexEvent(breakpoints, beachArcs, ans, top.point.y);
+						this.processVertexEvent(breakpoints, beachArcs, ans, top.point.y, null);
 					}
 				} else {
 					if (currIdx == p.length) {
@@ -473,8 +501,18 @@ public class Main {
 			}
 			out.println("Voronoi diagram vertices size: " + ans.size());
 			for (Point curr : ans) {
-//				out.println(curr);
+				out.println(curr);
 			}
+			
+			out.println("Govno");
+			for (NeighborsList list : adjList) {
+				out.println("Main: " + list.site);
+				for (Point point : list.nearest) {
+					out.print("[" + point + "]; ");
+				}
+				out.println();
+			}
+			
 		}
 		
 		/**
@@ -571,13 +609,39 @@ public class Main {
 			}
 		}
 		
-		private void processVertexEvent(TreeSet<Breakpoint> breakpoints, TreeSet<Triple> beachArcs, TreeSet<Point> voronoi, float sweepLineY) {
+		private void addData(Point main, Point a, Point b) {
+			NeighborsList list = new NeighborsList(main);
+			if (adjList.contains(list)) {
+				// gets an element
+				list = adjList.floor(list);
+			}
+			list.add(a);
+			list.add(b);
+			adjList.add(list);
+		}
+		
+		private void addDataFromTriple(Point a, Point b, Point c) {
+			addData(a, b, c);
+			addData(b, a, c);
+			addData(c, a, b);
+		}
+		
+		private void processVertexEvent(TreeSet<Breakpoint> breakpoints, TreeSet<Triple> beachArcs, TreeSet<Point> voronoi, float sweepLineY, Point probablyInclude) {
 //			out.println("Processing vertex event, sweep line y coord = " + sweepLineY);
 			Breakpoint top = breakpoints.pollFirst();
 			Point voronoiVertex = top.triple.getCircleCenter();
+			if (probablyInclude != null) {
+				if (probablyInclude.weakEqualsTo(top.point)) {
+					addDataFromTriple(probablyInclude, top.triple.mainSite, top.triple.nextSite);
+					addDataFromTriple(top.triple.prevSite, probablyInclude, top.triple.nextSite);
+					addDataFromTriple(top.triple.prevSite, top.triple.mainSite, probablyInclude);
+				}
+			}
+			addDataFromTriple(top.triple.prevSite, top.triple.mainSite, top.triple.nextSite);
 //			out.println("tangent point: " + top.point);
 			
 //			out.println("adding to voronoi diagram: " + voronoiVertex);
+			
 			voronoi.add(voronoiVertex);
 			
 			Triple lo = beachArcs.lower(top.triple);
@@ -645,10 +709,11 @@ public class Main {
 		TreeSet<Point> unique = new TreeSet<Main.Point>(Point.comparatorY);
 		for (int i = 0; i < nPoints; i++) {
 //			p[i] = new Point(in);
-			int val1 = (int)(Math.random() * 43843938 % 700);
-			int val2 = (int)(Math.random() * 43843438 % 700);
+//			int val1 = (int)(Math.random() * 43843938 % 700);
+//			int val2 = (int)(Math.random() * 43843438 % 700);
 //			p[i] = 
-			unique.add(new Point((float)val1, (float)val2));
+//			unique.add(new Point((float)val1, (float)val2));
+			unique.add(new Point(in));
 		}
 		Point[] ar = new Point[unique.size()];
 		int idx = 0;

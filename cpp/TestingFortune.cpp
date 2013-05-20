@@ -11,7 +11,7 @@
 
 #include "SimpleMath.h"
 
-//{
+namespace voronoi {
 
 	
 	static const float EPS = 1e-5f;
@@ -182,30 +182,11 @@
 		return (float)sqrtf(this->squaredDistanceTo(second));
 	}
 		
-//		static Point getLowestPoint() {
-//			return Point(0.0f, -1e7f);
-//		}
-		
 	bool Point::weakEqualsTo(const Point &that) const {
 		return fabs(this->x - that.x) < EPS && fabs(this->y - that.y) < EPS;
 	}
 
-	struct PointComparatorY : public std::binary_function<Point, Point, bool> {
-		bool operator() (const Point &first, const Point &second) {
-			int signY = signum(first.y - second.y);
-			if (signY != 0) {
-				return signY < 0;
-			} else {
-				return signum(first.x - second.x) < 0;
-			}
-		}
-	};
 	
-	struct PointComparatorX : public std::binary_function<Point, Point, bool> {
-		bool operator() (const Point &o1, const Point &o2) {
-			return o1.x < o2.x;
-		}
-	};
 	
 	Triple::Triple(const Point *prev, const Point *curr, const Point *next)
 		: prevSite(prev)
@@ -450,6 +431,7 @@
 
 	class VoronoiFortuneComputing {
 	public:
+		std::set<NeighborsList> adjList;
 
 		VoronoiFortuneComputing(std::vector<Point> &p) {
 			std::sort(p.begin(), p.end(), PointComparatorY());
@@ -464,13 +446,13 @@
 					Breakpoint top = *(breakpoints.begin());
 					if (currIdx != p.size()) {
 						if (top.point.y <= p[currIdx].y) {
-							this->processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y);
+							this->processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y, &p[currIdx]);
 						} else {
 							this->processSiteEvent(p[currIdx], breakpoints, beachArcs);
 							currIdx++;
 						}
 					} else {
-						this->processVertexEvent(breakpoints, beachArcs, ans, top.point.y);
+						this->processVertexEvent(breakpoints, beachArcs, ans, top.point.y, NULL);
 					}
 				} else {
 					if (currIdx == p.size()) {
@@ -597,15 +579,52 @@
 			}
 		}
 		
-		void processVertexEvent(std::set<Breakpoint, BreakpointComp> &breakpoints, std::set<Triple, TripleComp> &beachArcs, std::set<Point, PointComparatorY> &voronoi, float sweepLineY) {
+		void addData(const Point *main, const Point *a, const Point *b) {
+			NeighborsList list(*main);
+			if (adjList.find(list) != adjList.end()) {
+				// gets an element
+				std::set<NeighborsList>::iterator it = adjList.find(list);
+				it->add(*a);
+				it->add(*b);
+			} else {
+				list.add(*a);
+				list.add(*b);
+				adjList.insert(list);
+			}
+		}
+		
+		void addDataFromTriple(const Point *a, const Point *b, const Point *c) {
+			addData(a, b, c);
+			addData(b, a, c);
+			addData(c, a, b);
+		}
+
+		void processVertexEvent(
+			std::set<Breakpoint, BreakpointComp> &breakpoints, 
+			std::set<Triple, TripleComp> &beachArcs, 
+			std::set<Point, PointComparatorY> &voronoi, 
+			float sweepLineY, 
+			Point *probablyInclude
+		) {
 			printf("Processing vertex event, sweep line y coord = %.3f\r\n", sweepLineY);
 			std::set<Breakpoint, BreakpointComp>::iterator itTop = breakpoints.begin();
 			check(itTop != breakpoints.end());
 			
 			Breakpoint top = *itTop;
 
+			if (probablyInclude != NULL) {
+				if (probablyInclude->weakEqualsTo(top.point)) {
+					addDataFromTriple(probablyInclude, top.triple.mainSite, top.triple.nextSite);
+					addDataFromTriple(top.triple.prevSite, probablyInclude, top.triple.nextSite);
+					addDataFromTriple(top.triple.prevSite, top.triple.mainSite, probablyInclude);
+				}
+			}
+			addDataFromTriple(top.triple.prevSite, top.triple.mainSite, top.triple.nextSite);
+
 			breakpoints.erase(top);
+
 			Point voronoiVertex = top.triple.getCircleCenter();
+			
 			printf("tangent point: %s\r\n", top.point.prints().c_str());
 			
 			printf("adding to voronoi diagram: %s\r\n", voronoiVertex.prints().c_str());
@@ -663,11 +682,12 @@
 	void run() {
 		solve();
 	}
-//}
 
-int _tmain(int argc, _TCHAR* argv[])
+
+int _ttmain(int argc, _TCHAR* argv[])
 {
 	run();
 	return 0;
 }
 
+}
