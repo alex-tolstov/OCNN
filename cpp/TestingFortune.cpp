@@ -1,13 +1,13 @@
 // TestingFortune.cpp : Defines the entry point for the console application.
 //
 
-#include "stdafx.h"
 
 #include <iostream>
 #include <math.h>
 #include <vector>
 #include <string>
 #include <sstream>
+#include <time.h>
 
 #include "SimpleMath.h"
 
@@ -349,320 +349,317 @@ namespace voronoi {
 		return lo <= val && val <= hi;
 	}
 	
-	struct TripleComp : public std::binary_function<Triple, Triple, bool> {
 
-		int compare(const Triple &first, const Triple &second) const {
-			if (first.prevSite == second.prevSite && first.mainSite == second.mainSite && first.nextSite == second.nextSite) {
-				return 0;
-			}
-			float y = std::max(first.getMaxY(), second.getMaxY());
-			if (first.prevSite == LOWEST() && first.nextSite == LOWEST()) {
-				if (second.prevSite == LOWEST() && second.nextSite == LOWEST()) {
-					if (first.mainSite->y != second.mainSite->y) {
-						// ибо логично
-						return 0;
-					} else {
-						return signum(first.mainSite->x - second.mainSite->x);
-					}
+	int TripleComp::compare(const Triple &first, const Triple &second) const {
+		if (first.prevSite == second.prevSite && first.mainSite == second.mainSite && first.nextSite == second.nextSite) {
+			return 0;
+		}
+		float y = std::max(first.getMaxY(), second.getMaxY());
+		if (first.prevSite == LOWEST() && first.nextSite == LOWEST()) {
+			if (second.prevSite == LOWEST() && second.nextSite == LOWEST()) {
+				if (first.mainSite->y != second.mainSite->y) {
+					// ибо логично
+					return 0;
 				} else {
-					std::list<float> boundSecond = second.getBounds(y);
-					float secondLo = boundSecond.front();
-					float secondHi = boundSecond.back();
-
-					if (isBetween(secondHi, secondHi, first.mainSite->x)) {
-						return 1;
-					} else if (isBetween(secondLo, secondHi - EPS, first.mainSite->x)) {
-						return 0;
-					}
-
-					if (first.mainSite->x < secondLo) {
-						return -1;
-					} else {
-						return 1;
-					}
+					return signum(first.mainSite->x - second.mainSite->x);
 				}
-			} else if (second.prevSite == LOWEST() && second.nextSite == LOWEST()) {
-				return -compare(second, first);
-			}
-			
-			if (first.mainSite == second.prevSite && first.nextSite == second.mainSite) {
-				return -1;
-			} else if (first.prevSite == second.mainSite && first.mainSite == second.nextSite) {
-				return 1;
-			}
-			
-			std::list<float> boundFirst = first.getBounds(y);
-			float firstLo = boundFirst.front();
-			float firstHi = boundFirst.back();
-			
-			std::list<float> boundSecond = second.getBounds(y);
-			float secondLo = boundSecond.front();
-			float secondHi = boundSecond.back();
-			
-			if (isBetween(firstLo, firstHi, secondLo) && isBetween(firstLo, firstHi, secondHi)) {
-				// вырожденный случай - когда second делит first на 2 части.
-				// одновременно такие элементы не могут находиться во множестве.
-				return 0;
-			}
-			if (isBetween(secondLo, secondHi, firstLo) && isBetween(secondLo, secondHi, firstHi)) {
-				// вырожденный случай - когда first делит second на 2 части.
-				// одновременно такие элементы не могут находиться во множестве.
-				return 0;
-			}
-			bool a = firstHi < secondLo + EPS;
-			bool b = secondHi < firstLo + EPS;
-			check(a ^ b);
-			if (firstHi < secondLo + EPS) {
-				return -1;
 			} else {
-				return 1;
-			}
-		}
+				std::list<float> boundSecond = second.getBounds(y);
+				float secondLo = boundSecond.front();
+				float secondHi = boundSecond.back();
 
-		bool operator () (const Triple &first, const Triple &second) const {
-			return compare(first, second) < 0;
+				if (isBetween(secondHi, secondHi, first.mainSite->x)) {
+					return 1;
+				} else if (isBetween(secondLo, secondHi - EPS, first.mainSite->x)) {
+					return 0;
+				}
+
+				if (first.mainSite->x < secondLo) {
+					return -1;
+				} else {
+					return 1;
+				}
+			}
+		} else if (second.prevSite == LOWEST() && second.nextSite == LOWEST()) {
+			return -compare(second, first);
 		}
-	};
+		
+		if (first.mainSite == second.prevSite && first.nextSite == second.mainSite) {
+			return -1;
+		} else if (first.prevSite == second.mainSite && first.mainSite == second.nextSite) {
+			return 1;
+		}
+		
+		std::list<float> boundFirst = first.getBounds(y);
+		float firstLo = boundFirst.front();
+		float firstHi = boundFirst.back();
+		
+		std::list<float> boundSecond = second.getBounds(y);
+		float secondLo = boundSecond.front();
+		float secondHi = boundSecond.back();
+		
+		if (isBetween(firstLo, firstHi, secondLo) && isBetween(firstLo, firstHi, secondHi)) {
+			// вырожденный случай - когда second делит first на 2 части.
+			// одновременно такие элементы не могут находиться во множестве.
+			return 0;
+		}
+		if (isBetween(secondLo, secondHi, firstLo) && isBetween(secondLo, secondHi, firstHi)) {
+			// вырожденный случай - когда first делит second на 2 части.
+			// одновременно такие элементы не могут находиться во множестве.
+			return 0;
+		}
+		bool a = firstHi < secondLo + EPS;
+		bool b = secondHi < firstLo + EPS;
+		check(a ^ b);
+		if (firstHi < secondLo + EPS) {
+			return -1;
+		} else {
+			return 1;
+		}
+	}
+
+	bool TripleComp::operator () (const Triple &first, const Triple &second) const {
+		return compare(first, second) < 0;
+	}
+
 	
 	Point* LOWEST() {
 		static Point ans = Point::getLowestPoint();
 		return &ans;
 	}
 
-	class VoronoiFortuneComputing {
-	public:
-		std::set<NeighborsList> adjList;
-
-		VoronoiFortuneComputing(std::vector<Point> &p) {
-			std::sort(p.begin(), p.end(), PointComparatorY());
-			std::set<Triple, TripleComp> beachArcs;
-			std::set<Breakpoint, BreakpointComp> breakpoints;
-			std::set<Point, PointComparatorY> ans;
-			
-			int currIdx = this->processFirstLineSiteEvents(p, beachArcs);
-			int counter = 0;
-			while (true) {
-				if (breakpoints.size() != 0) {
-					Breakpoint top = *(breakpoints.begin());
-					if (currIdx != p.size()) {
-						if (top.point.y <= p[currIdx].y) {
-							this->processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y, &p[currIdx]);
-						} else {
-							this->processSiteEvent(p[currIdx], breakpoints, beachArcs);
-							currIdx++;
-						}
-					} else {
-						this->processVertexEvent(breakpoints, beachArcs, ans, top.point.y, NULL);
-					}
-				} else {
-					if (currIdx == p.size()) {
-						break;
+	VoronoiFortuneComputing::VoronoiFortuneComputing(std::vector<Point> &p) {
+		std::sort(p.begin(), p.end(), PointComparatorY());
+		std::set<Triple, TripleComp> beachArcs;
+		std::set<Breakpoint, BreakpointComp> breakpoints;
+		std::set<Point, PointComparatorY> ans;
+		
+		int currIdx = this->processFirstLineSiteEvents(p, beachArcs);
+		int counter = 0;
+		while (true) {
+			if (breakpoints.size() != 0) {
+				Breakpoint top = *(breakpoints.begin());
+				if (currIdx != p.size()) {
+					if (top.point.y <= p[currIdx].y) {
+						this->processVertexEvent(breakpoints, beachArcs, ans, p[currIdx].y, &p[currIdx]);
 					} else {
 						this->processSiteEvent(p[currIdx], breakpoints, beachArcs);
 						currIdx++;
 					}
+				} else {
+					this->processVertexEvent(breakpoints, beachArcs, ans, top.point.y, NULL);
 				}
-				printf("beach step: %d:\r\n", counter);
-				counter++;
+			} else {
+				if (currIdx == p.size()) {
+					break;
+				} else {
+					this->processSiteEvent(p[currIdx], breakpoints, beachArcs);
+					currIdx++;
+				}
 			}
-			printf("Voronoi diagram vertices size: %u:\r\n", ans.size());
-			for (std::set<Point, PointComparatorY>::iterator it = ans.begin(); it != ans.end(); ++it) {
-				printf("%s\r\n", it->prints().c_str());
-			}
+			printf("beach step: %d:\r\n", counter);
+			counter++;
+		}
+		printf("Voronoi diagram vertices size: %u:\r\n", ans.size());
+		for (std::set<Point, PointComparatorY>::iterator it = ans.begin(); it != ans.end(); ++it) {
+			printf("%s\r\n", it->prints().c_str());
+		}
+	}
+		
+	/**
+	 * С этим порой жопа. Требуется взять все точки, имеющие минимальную ординату,
+	 * и сделать структуру вида
+	 * (LOWEST, 1, 2)
+	 * (1, 2, 3)
+	 * (2, 3, 4)
+	 * (3, 4, LOWEST)
+	 * 
+	 * Никаких событий данные фиговины не генерируют, ибо все в один ряд.
+	 * */
+	int VoronoiFortuneComputing::processFirstLineSiteEvents(
+		const std::vector<Point> &p, 
+		std::set<Triple, TripleComp> &beachArcs
+	) {
+		int amountTops = 0;
+		while (amountTops < static_cast<int>(p.size()) && p[amountTops].y == p[0].y) {
+			amountTops++;
 		}
 		
-	private:
-
-		/**
-		 * С этим порой жопа. Требуется взять все точки, имеющие минимальную ординату,
-		 * и сделать структуру вида
-		 * (LOWEST, 1, 2)
-		 * (1, 2, 3)
-		 * (2, 3, 4)
-		 * (3, 4, LOWEST)
-		 * 
-		 * Никаких событий данные фиговины не генерируют, ибо все в один ряд.
-		 * */
-		int processFirstLineSiteEvents(const std::vector<Point> &p, std::set<Triple, TripleComp> &beachArcs) {
-			int amountTops = 0;
-			while (amountTops < static_cast<int>(p.size()) && p[amountTops].y == p[0].y) {
-				amountTops++;
-			}
-			
-			if (amountTops == 1) {
-				beachArcs.insert(Triple(LOWEST(), &p[0], LOWEST()));
-				return amountTops;
-			}
-			beachArcs.insert(Triple(LOWEST(), &p[0], &p[1]));
-			
-			for (int i = 1; i < amountTops - 1; i++) {
-				beachArcs.insert(Triple(&p[i - 1], &p[i], &p[i + 1]));
-			}
-			
-			beachArcs.insert(Triple(&p[amountTops - 2], &p[amountTops - 1], LOWEST()));
+		if (amountTops == 1) {
+			beachArcs.insert(Triple(LOWEST(), &p[0], LOWEST()));
 			return amountTops;
 		}
+		beachArcs.insert(Triple(LOWEST(), &p[0], &p[1]));
+		
+		for (int i = 1; i < amountTops - 1; i++) {
+			beachArcs.insert(Triple(&p[i - 1], &p[i], &p[i + 1]));
+		}
+		
+		beachArcs.insert(Triple(&p[amountTops - 2], &p[amountTops - 1], LOWEST()));
+		return amountTops;
+	}
 		
 
-		void processSiteEvent(const Point &curr, std::set<Breakpoint, BreakpointComp> &breakpoints, std::set<Triple, TripleComp> &beachArcs) {
-			printf("Processing site event caused by point %s\r\n", curr.prints().c_str());
-			Triple searchHelper(LOWEST(), &curr, LOWEST());
-			if (beachArcs.size() == 0) {
-				// не добавляем точку
-				beachArcs.insert(searchHelper);
-			} else {
-				// Two elements of a set are considered equivalent if the container's comparison object 
-				// returns false reflexively (i.e., no matter the order in which the elements are passed as arguments).
-				std::set<Triple, TripleComp>::iterator itDividedArc = beachArcs.find(searchHelper);
-				std::set<Triple, TripleComp>::iterator itDown = itDividedArc;
+	void VoronoiFortuneComputing::processSiteEvent(
+		const Point &curr, 
+		std::set<Breakpoint, BreakpointComp> &breakpoints, 
+		std::set<Triple, TripleComp> &beachArcs
+	) {
+		printf("Processing site event caused by point %s\r\n", curr.prints().c_str());
+		Triple searchHelper(LOWEST(), &curr, LOWEST());
+		if (beachArcs.size() == 0) {
+			// не добавляем точку
+			beachArcs.insert(searchHelper);
+		} else {
+			// Two elements of a set are considered equivalent if the container's comparison object 
+			// returns false reflexively (i.e., no matter the order in which the elements are passed as arguments).
+			std::set<Triple, TripleComp>::iterator itDividedArc = beachArcs.find(searchHelper);
+			std::set<Triple, TripleComp>::iterator itDown = itDividedArc;
 
-				Triple dividedArc = *itDividedArc;
-				--itDown;
+			Triple dividedArc = *itDividedArc;
+			--itDown;
 
-				if (itDown != beachArcs.end()) {
-					Triple lowerArc = *itDown;
-					printf("GURON\r\n");
-					if (isDivide(searchHelper, lowerArc, dividedArc)) {
-						printf("GURO\r\n");
-						beachArcs.erase(lowerArc);
-						beachArcs.erase(dividedArc);
-						
-						dividedArc.removeIfPossible(breakpoints);
-						lowerArc.removeIfPossible(breakpoints);
-						
-						/// ------------
-						
-						lowerArc.nextSite = &curr;
-						dividedArc.prevSite = &curr;
-						searchHelper.prevSite = lowerArc.mainSite;
-						searchHelper.nextSite = dividedArc.mainSite;
-						
-						lowerArc.recalcCircumcenter(curr.y);
-						dividedArc.recalcCircumcenter(curr.y);
-						searchHelper.recalcCircumcenter(curr.y);
-						
-						check(beachArcs.insert(lowerArc).second);
-						check(beachArcs.insert(dividedArc).second);
-						check(beachArcs.insert(searchHelper).second);
-						
-						lowerArc.addIfGood(breakpoints);
-						dividedArc.addIfGood(breakpoints);
-						searchHelper.addIfGood(breakpoints);
-						return;
-					}
-				} 
-
-				if (itDividedArc == beachArcs.end()) {
-					throw "gavnen'";
-					//--itDividedArc;
-				}
-				check(itDividedArc != beachArcs.end());
-//				Triple dividedArc = *itDividedArc;
-				if (!dividedArc.isCircumcenterEvaluated && dividedArc.mainSite->y == searchHelper.mainSite->y) {
-					beachArcs.insert(searchHelper);
-					// FIXME необходимо организовать реализацию ситуации, когда несколько точек на передовой делят горизонт.
+			if (itDown != beachArcs.end()) {
+				Triple lowerArc = *itDown;
+				printf("GURON\r\n");
+				if (isDivide(searchHelper, lowerArc, dividedArc)) {
+					printf("GURO\r\n");
+					beachArcs.erase(lowerArc);
+					beachArcs.erase(dividedArc);
+					
+					dividedArc.removeIfPossible(breakpoints);
+					lowerArc.removeIfPossible(breakpoints);
+					
+					/// ------------
+					
+					lowerArc.nextSite = &curr;
+					dividedArc.prevSite = &curr;
+					searchHelper.prevSite = lowerArc.mainSite;
+					searchHelper.nextSite = dividedArc.mainSite;
+					
+					lowerArc.recalcCircumcenter(curr.y);
+					dividedArc.recalcCircumcenter(curr.y);
+					searchHelper.recalcCircumcenter(curr.y);
+					
+					check(beachArcs.insert(lowerArc).second);
+					check(beachArcs.insert(dividedArc).second);
+					check(beachArcs.insert(searchHelper).second);
+					
+					lowerArc.addIfGood(breakpoints);
+					dividedArc.addIfGood(breakpoints);
+					searchHelper.addIfGood(breakpoints);
 					return;
 				}
-				Triple newArc(dividedArc.mainSite, &curr, dividedArc.mainSite, curr.y);
-				Triple left(dividedArc.prevSite, dividedArc.mainSite, &curr, curr.y);
-				Triple right(&curr, dividedArc.mainSite, dividedArc.nextSite, curr.y);
-				
-				beachArcs.erase(dividedArc);
-				
-				check(beachArcs.insert(newArc).second);
-				check(beachArcs.insert(left).second);
-				check(beachArcs.insert(right).second);
+			} 
 
-				left.addIfGood(breakpoints);
-				right.addIfGood(breakpoints);
-				dividedArc.removeIfPossible(breakpoints);
+			if (itDividedArc == beachArcs.end()) {
+				throw "gavnen'";
+				//--itDividedArc;
 			}
+			check(itDividedArc != beachArcs.end());
+//				Triple dividedArc = *itDividedArc;
+			if (!dividedArc.isCircumcenterEvaluated && dividedArc.mainSite->y == searchHelper.mainSite->y) {
+				beachArcs.insert(searchHelper);
+				// FIXME необходимо организовать реализацию ситуации, когда несколько точек на передовой делят горизонт.
+				return;
+			}
+			Triple newArc(dividedArc.mainSite, &curr, dividedArc.mainSite, curr.y);
+			Triple left(dividedArc.prevSite, dividedArc.mainSite, &curr, curr.y);
+			Triple right(&curr, dividedArc.mainSite, dividedArc.nextSite, curr.y);
+			
+			beachArcs.erase(dividedArc);
+			
+			check(beachArcs.insert(newArc).second);
+			check(beachArcs.insert(left).second);
+			check(beachArcs.insert(right).second);
+
+			left.addIfGood(breakpoints);
+			right.addIfGood(breakpoints);
+			dividedArc.removeIfPossible(breakpoints);
 		}
+	}
 		
-		void addData(const Point *main, const Point *a, const Point *b) {
-			NeighborsList list(*main);
-			if (adjList.find(list) != adjList.end()) {
-				// gets an element
-				std::set<NeighborsList>::iterator it = adjList.find(list);
-				it->add(*a);
-				it->add(*b);
-			} else {
-				list.add(*a);
-				list.add(*b);
-				adjList.insert(list);
-			}
+	void VoronoiFortuneComputing::addData(const Point *main, const Point *a, const Point *b) {
+		NeighborsList list(*main);
+		if (adjList.find(list) != adjList.end()) {
+			// gets an element
+			std::set<NeighborsList>::iterator it = adjList.find(list);
+			it->add(*a);
+			it->add(*b);
+		} else {
+			list.add(*a);
+			list.add(*b);
+			adjList.insert(list);
 		}
+	}
 		
-		void addDataFromTriple(const Point *a, const Point *b, const Point *c) {
-			addData(a, b, c);
-			addData(b, a, c);
-			addData(c, a, b);
-		}
+	void VoronoiFortuneComputing::addDataFromTriple(const Point *a, const Point *b, const Point *c) {
+		addData(a, b, c);
+		addData(b, a, c);
+		addData(c, a, b);
+	}
 
-		void processVertexEvent(
-			std::set<Breakpoint, BreakpointComp> &breakpoints, 
-			std::set<Triple, TripleComp> &beachArcs, 
-			std::set<Point, PointComparatorY> &voronoi, 
-			float sweepLineY, 
-			Point *probablyInclude
-		) {
-			printf("Processing vertex event, sweep line y coord = %.3f\r\n", sweepLineY);
-			std::set<Breakpoint, BreakpointComp>::iterator itTop = breakpoints.begin();
-			check(itTop != breakpoints.end());
-			
-			Breakpoint top = *itTop;
+	void VoronoiFortuneComputing::processVertexEvent(
+		std::set<Breakpoint, BreakpointComp> &breakpoints, 
+		std::set<Triple, TripleComp> &beachArcs, 
+		std::set<Point, PointComparatorY> &voronoi, 
+		float sweepLineY, 
+		Point *probablyInclude
+	) {
+		printf("Processing vertex event, sweep line y coord = %.3f\r\n", sweepLineY);
+		std::set<Breakpoint, BreakpointComp>::iterator itTop = breakpoints.begin();
+		check(itTop != breakpoints.end());
+		
+		Breakpoint top = *itTop;
 
-			if (probablyInclude != NULL) {
-				if (probablyInclude->weakEqualsTo(top.point)) {
-					addDataFromTriple(probablyInclude, top.triple.mainSite, top.triple.nextSite);
-					addDataFromTriple(top.triple.prevSite, probablyInclude, top.triple.nextSite);
-					addDataFromTriple(top.triple.prevSite, top.triple.mainSite, probablyInclude);
-				}
+		if (probablyInclude != NULL) {
+			if (probablyInclude->weakEqualsTo(top.point)) {
+				addDataFromTriple(probablyInclude, top.triple.mainSite, top.triple.nextSite);
+				addDataFromTriple(top.triple.prevSite, probablyInclude, top.triple.nextSite);
+				addDataFromTriple(top.triple.prevSite, top.triple.mainSite, probablyInclude);
 			}
-			addDataFromTriple(top.triple.prevSite, top.triple.mainSite, top.triple.nextSite);
-
-			breakpoints.erase(top);
-
-			Point voronoiVertex = top.triple.getCircleCenter();
-			
-			printf("tangent point: %s\r\n", top.point.prints().c_str());
-			
-			printf("adding to voronoi diagram: %s\r\n", voronoiVertex.prints().c_str());
-			voronoi.insert(voronoiVertex);
-			
-			std::set<Triple, TripleComp>::iterator itTriple = beachArcs.find(top.triple);
-			std::set<Triple, TripleComp>::iterator it2 = itTriple;
-			check(itTriple != beachArcs.end());
-
-			Triple lo = *(--itTriple);
-			Triple hi = *(++it2);
-			
-			beachArcs.erase(top.triple); //check(beachArcs.erase(top.triple));
-
-			beachArcs.erase(lo);
-			beachArcs.erase(hi);
-			
-			lo.removeIfPossible(breakpoints);
-			hi.removeIfPossible(breakpoints);
-			
-			lo.nextSite = hi.mainSite;
-			hi.prevSite = lo.mainSite;
-			
-			lo.recalcCircumcenter(sweepLineY);
-			hi.recalcCircumcenter(sweepLineY);
-			
-			beachArcs.insert(lo);//check(beachArcs.add(lo));
-			beachArcs.insert(hi);//check(beachArcs.add(hi));
-
-			lo.addIfGood(breakpoints);
-			hi.addIfGood(breakpoints);
 		}
-	};
+		addDataFromTriple(top.triple.prevSite, top.triple.mainSite, top.triple.nextSite);
 
-#include <time.h>
+		breakpoints.erase(top);
+
+		Point voronoiVertex = top.triple.getCircleCenter();
+		
+		printf("tangent point: %s\r\n", top.point.prints().c_str());
+		
+		printf("adding to voronoi diagram: %s\r\n", voronoiVertex.prints().c_str());
+		voronoi.insert(voronoiVertex);
+		
+		std::set<Triple, TripleComp>::iterator itTriple = beachArcs.find(top.triple);
+		std::set<Triple, TripleComp>::iterator it2 = itTriple;
+		check(itTriple != beachArcs.end());
+
+		Triple lo = *(--itTriple);
+		Triple hi = *(++it2);
+		
+		beachArcs.erase(top.triple); //check(beachArcs.erase(top.triple));
+
+		beachArcs.erase(lo);
+		beachArcs.erase(hi);
+		
+		lo.removeIfPossible(breakpoints);
+		hi.removeIfPossible(breakpoints);
+		
+		lo.nextSite = hi.mainSite;
+		hi.prevSite = lo.mainSite;
+		
+		lo.recalcCircumcenter(sweepLineY);
+		hi.recalcCircumcenter(sweepLineY);
+		
+		beachArcs.insert(lo);//check(beachArcs.add(lo));
+		beachArcs.insert(hi);//check(beachArcs.add(hi));
+
+		lo.addIfGood(breakpoints);
+		hi.addIfGood(breakpoints);
+	}
 
 	void solve() {
-		int nPoints;
+		int nPoints=10;
 		std::cin >> nPoints;
 
 		std::vector<Point> pa;
@@ -682,12 +679,4 @@ namespace voronoi {
 	void run() {
 		solve();
 	}
-
-
-int _ttmain(int argc, _TCHAR* argv[])
-{
-	run();
-	return 0;
-}
-
 }

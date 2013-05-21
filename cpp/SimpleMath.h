@@ -4,16 +4,61 @@
 #include <iostream>
 #include <list>
 #include <algorithm>
+#include <string>
+#include <vector>
 #include <set>
+
+#define QUOTE(A) #A
+
+inline void check(bool b) {
+	if (!b) {
+		throw std::string("GANVO");
+	}
+}
+//#define check(EXPRESSION) \
+//	if (!EXPRESSION) { \
+//		throw std::string(QUOTE(EXPRESSION)); \
+//	}
+
+
+#define checkKernelRun(EXEC) { \
+	EXEC;\
+	cudaError_t result = cudaGetLastError();\
+	if (result != cudaSuccess) { \
+		throw std::string("Start failure: ") + std::string(QUOTE(EXEC)) + ": " + std::string(cudaGetErrorString(result)); \
+	}\
+	cudaThreadSynchronize();\
+	result = cudaGetLastError();\
+	if (result != cudaSuccess) { \
+		throw std::string("Run failure: ") + std::string(QUOTE(EXEC)) + ": " + std::string(cudaGetErrorString(result)); \
+	}\
+}
+
+#define checkCudaCall(EXEC) {\
+	EXEC;\
+	cudaThreadSynchronize();\
+	cudaError_t result = cudaGetLastError();\
+	if (result != cudaSuccess) {\
+		throw std::string("Run failure: ") + std::string(QUOTE(EXEC)) + ": " + std::string(cudaGetErrorString(result)); \
+	}\
+}
+
+#define BEGIN_FUNCTION try
+
+#define END_FUNCTION catch (const std::string &message) { \
+	throw std::string(__FUNCTION__) + ": " + message; \
+}
+
+#define BEGIN_DESTRUCTOR try 
+
+#define END_DESTRUCTOR catch (const std::string &message) { \
+	printf("DESTRUCTOR ERROR: %s: %s\n", std::string(__FUNCTION__).c_str(), message.c_str()); \
+}
 
 
 namespace voronoi {
 
-void check(bool e) {
-	if (!e) {
-		throw std::string("JOPKA");
-	}
-}
+
 class Line;
 class Point;
 struct Breakpoint;
@@ -168,6 +213,50 @@ struct BreakpointComp : public std::binary_function<Breakpoint, Breakpoint, bool
 };
 
 Point* LOWEST();
+
+struct TripleComp : public std::binary_function<Triple, Triple, bool> {
+	int compare(const Triple &first, const Triple &second) const;
+	bool operator () (const Triple &first, const Triple &second) const;
+};
+
+class VoronoiFortuneComputing {
+public:
+	std::set<NeighborsList> adjList;
+
+	VoronoiFortuneComputing(std::vector<Point> &p);
+	
+private:
+
+	/**
+	 * С этим порой жопа. Требуется взять все точки, имеющие минимальную ординату,
+	 * и сделать структуру вида
+	 * (LOWEST, 1, 2)
+	 * (1, 2, 3)
+	 * (2, 3, 4)
+	 * (3, 4, LOWEST)
+	 * 
+	 * Никаких событий данные фиговины не генерируют, ибо все в один ряд.
+	 * */
+	int processFirstLineSiteEvents(const std::vector<Point> &p, std::set<Triple, TripleComp> &beachArcs);
+
+	void processSiteEvent(
+		const Point &curr, 
+		std::set<Breakpoint, BreakpointComp> &breakpoints, 
+		std::set<Triple, TripleComp> &beachArcs
+	);
+	
+	void addData(const Point *main, const Point *a, const Point *b);
+	
+	void addDataFromTriple(const Point *a, const Point *b, const Point *c);
+
+	void processVertexEvent(
+		std::set<Breakpoint, BreakpointComp> &breakpoints, 
+		std::set<Triple, TripleComp> &beachArcs, 
+		std::set<Point, PointComparatorY> &voronoi, 
+		float sweepLineY, 
+		Point *probablyInclude
+	);
+};
 
 } // namespace voronoi
 

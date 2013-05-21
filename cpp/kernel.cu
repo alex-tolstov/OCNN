@@ -1,53 +1,12 @@
 
 #include "cuda_runtime.h"
-#include "device_launch_parameters.h"
+//#include "device_launch_parameters.h"
 
 #include <iostream>
 #include <string>
 #include <vector>
 
-#define QUOTE(A) #A
-
-#define check(EXPRESSION) \
-	if (!EXPRESSION) { \
-		throw std::string(QUOTE(EXPRESSION)); \
-	}
-
-
-#define checkKernelRun(EXEC) { \
-	EXEC;\
-	cudaError_t result = cudaGetLastError();\
-	if (result != cudaSuccess) { \
-		throw std::string("Start failure: ") + std::string(QUOTE(EXEC)) + ": " + std::string(cudaGetErrorString(result)); \
-	}\
-	cudaThreadSynchronize();\
-	result = cudaGetLastError();\
-	if (result != cudaSuccess) { \
-		throw std::string("Run failure: ") + std::string(QUOTE(EXEC)) + ": " + std::string(cudaGetErrorString(result)); \
-	}\
-}
-
-#define checkCudaCall(EXEC) {\
-	EXEC;\
-	cudaThreadSynchronize();\
-	cudaError_t result = cudaGetLastError();\
-	if (result != cudaSuccess) {\
-		throw std::string("Run failure: ") + std::string(QUOTE(EXEC)) + ": " + std::string(cudaGetErrorString(result)); \
-	}\
-}
-
-#define BEGIN_FUNCTION try
-
-#define END_FUNCTION catch (const std::string &message) { \
-	throw std::string(__FUNCTION__) + ": " + message; \
-}
-
-#define BEGIN_DESTRUCTOR try 
-
-#define END_DESTRUCTOR catch (const std::string &message) { \
-	printf("DESTRUCTOR ERROR: %s: %s\n", std::string(__FUNCTION__).c_str(), message.c_str()); \
-}
-
+#include "C:\\Users\\Alex\\Desktop\\ocnn\\cpp\\SimpleMath.h"
 
 
 template <typename T> 
@@ -108,10 +67,10 @@ public:
 		} END_FUNCTION
 	}
 
-	void copyToHost(const T *host, int nElements) const {
+	void copyToHost(T *host, int nElements) {
 		BEGIN_FUNCTION {
 			check(data.size() >= nElements); 
-			checkCudaCall(cudaMemcpy((void*)host, (void*)data.getDevPtr(), nElements * sizeof(T), cudaMemcpyDeviceToHost));
+			checkCudaCall(cudaMemcpy(host, data.getDevPtr(), nElements * sizeof(T), cudaMemcpyDeviceToHost));
 		} END_FUNCTION
 	}
 
@@ -123,7 +82,7 @@ public:
 
 
 __device__ float logistic(float signal) {
-	return 4.0f * signal - 1.0f;
+	return 1.0f - 2.0f * signal * signal;
 }
 
 /**
@@ -142,7 +101,8 @@ __global__ void calcDynamics(
 	float *weightMatrix,
 	float *neuronInput,
 	float *output,
-	int nNeurons
+	int nNeurons,
+	const float normCoeff
 ) {
 	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
 	if (neuronIdx >= nNeurons) {
@@ -152,7 +112,7 @@ __global__ void calcDynamics(
 	for (int i = 0; i < nNeurons; i++) {
 		sum += neuronInput[i] * weightMatrix[i * nNeurons + neuronIdx];
 	}
-	output[neuronIdx] = logistic(sum);
+	output[neuronIdx] = normCoeff * logistic(sum);
 }
 
 
@@ -201,18 +161,32 @@ __global__ void zeroInts(int *ar, int count) {
 	ar[idx] = 0;
 }
 
+/*
+рандом в диапазоне от -1 до 1
+
+*/
+__global__ void pseudoRandom(float *ar, int size) {
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (idx >= size) {
+		return;
+	}
+	ar[idx] = -1.0f + 2.0 / (idx % 3 + 1);
+}
+
 inline int divRoundUp(int a, int b) {
 	return (a - 1) / b + 1;
 }
 
 void processOscillatoryChaoticNetworkDynamics(
-	int nNeurons, 
+	int nNeurons,
 	const std::vector<float> &weightMatrixHost,
 	int startObservationTime,
 	int nIterations,
-	const float successRate
+	const float successRate,
+	const float normCoeff
 ) {
 	BEGIN_FUNCTION {
+		printf("start oscillatory process, norm coef = %5.4f\r\n", normCoeff);
 		check(nIterations > 0);
 		check(nNeurons > 0);
 		check(startObservationTime >= 0);
@@ -224,10 +198,13 @@ void processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<float> input(nNeurons);
 		DeviceScopedPtr1D<float> output(nNeurons);
 
+		std::vector<float> stateHost(nNeurons);
 		dim3 blockDim(256);
 		dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
 		float *ptrEven = input.getDevPtr();
+		checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrEven, nNeurons)));
 		float *ptrOdd = output.getDevPtr();
+		checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrOdd, nNeurons)));
 		
 		for (int i = 0; i < startObservationTime; i++) {
 			checkKernelRun((
@@ -235,9 +212,19 @@ void processOscillatoryChaoticNetworkDynamics(
 					weightMatrixDevice.getDevPtr(),
 					ptrEven,
 					ptrOdd,
-					nNeurons
+					nNeurons,
+					normCoeff
 				)
 			));
+			if (output.getDevPtr() == ptrOdd) {
+				output.copyToHost(&stateHost[0], stateHost.size());
+			} else {
+				input.copyToHost(&stateHost[0], stateHost.size());
+			}
+			for (int j = 0; j < nNeurons; j++) {
+				printf("%5.4f ", stateHost[j]);
+			}
+			printf("\r\n");
 			std::swap(ptrEven, ptrOdd);
 		}
 
@@ -252,23 +239,33 @@ void processOscillatoryChaoticNetworkDynamics(
 					hits.getDevPtr(),
 					currentHits.getDevPtr(),
 					nNeurons,
-					1e-4f
+					1e-2f
 				)
 			));
-			currentHits.copyToHost(&currentHitsHost[0], nNeurons);
-			for (int j = 0; j < nNeurons; j++) {
-				printf("%d ", currentHitsHost[j]);
-			}
-			printf("\r\n");
+	//		currentHits.copyToHost(&currentHitsHost[0], nNeurons);
+	//		for (int j = 0; j < nNeurons; j++) {
+	//			printf("%d ", currentHitsHost[j]);
+	//		}
+	//		printf("\r\n");
 
 			checkKernelRun((
 				calcDynamics<<<gridDim, blockDim>>>(
 					weightMatrixDevice.getDevPtr(),
 					ptrEven,
 					ptrOdd,
-					nNeurons
+					nNeurons,
+					normCoeff
 				)
 			));
+			if (output.getDevPtr() == ptrOdd) {
+				output.copyToHost(&stateHost[0], stateHost.size());
+			} else {
+				input.copyToHost(&stateHost[0], stateHost.size());
+			}
+			for (int j = 0; j < nNeurons; j++) {
+				printf("%5.4f ", stateHost[j]);
+			}
+			printf("\r\n");
 			std::swap(ptrEven, ptrOdd);
 		}
 
@@ -276,27 +273,48 @@ void processOscillatoryChaoticNetworkDynamics(
 }
 
 
-struct Point {
-	float x;
-	float y;
-
-	Point(float x, float y) 
-		: x(x)
-		, y(y)
-	{
-	}
-};
 
 class NeuralNetwork {
 private:
-	std::vector<Point> points;
+	std::vector<voronoi::Point> points;
 	std::vector<float> weightMatrix;
+	double totalAverage;
+	double sumCoeffs;
 
-	void createVoronoiDiagram() {}
-	void calcWeightCoefs() {}
+	void createVoronoiDiagram() {
+		voronoi::VoronoiFortuneComputing diagram(points);
+		int nPoints = static_cast<int>(points.size());
+		check(nPoints > 0);
+		double sumAverages = 0.0;
+		for (std::set<voronoi::NeighborsList>::iterator it = diagram.adjList.begin();
+			it != diagram.adjList.end();
+			++it
+		) {
+			sumAverages += it->getAverageDistance();
+		}
+		totalAverage = sumAverages / (nPoints + 0.0);
+		printf("total average = %5.4f\r\n", totalAverage);
+	}
+
+	void calcWeightCoefs() {
+		int nPoints = static_cast<int>(points.size());
+		weightMatrix.resize(nPoints * nPoints, 0.0f);
+		sumCoeffs = 0.0;
+		for (int i = 0; i < nPoints; i++) {
+			for (int j = i + 1; j < nPoints; j++) {
+				double sqDist = points[i].squaredDistanceTo(points[j]);
+				double k = sqDist / (2.0 * totalAverage * totalAverage);
+				float result = expf(-k);
+				sumCoeffs += result * 2;
+				weightMatrix[i * nPoints + j] = result;
+				weightMatrix[j * nPoints + i] = result;
+			}
+		}
+	}
+
 public:
 
-	NeuralNetwork(const std::vector<Point> &points) 
+	NeuralNetwork(const std::vector<voronoi::Point> &points) 
 		: points(points)
 	{
 		createVoronoiDiagram();
@@ -304,7 +322,14 @@ public:
 	}
 
 	void process() {
-		::processOscillatoryChaoticNetworkDynamics(points.size(), weightMatrix, 10, 1000, 0.74f);
+		::processOscillatoryChaoticNetworkDynamics(
+			this->points.size(), 
+			this->weightMatrix,
+			5,
+			40,
+			0.8,
+			1.0f / this->sumCoeffs
+		);
 		printf("GURO\n");
 	}
 };
@@ -312,15 +337,18 @@ public:
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
-		
+		check(freopen("C:\\voronoi\\result.txt", "w", stdout) != NULL);
+		using voronoi::Point;
 		std::vector<Point> points;
 
-		points.push_back(Point(2.5f, 3.7f));
-		points.push_back(Point(0.5f, 3.7f));
-		points.push_back(Point(4.5f, 3.7f));
-		points.push_back(Point(2.5f, 0.7f));
-		points.push_back(Point(5.5f, 0.7f));
-
+		int nPoints;
+		std::cin >> nPoints;
+		for (int i = 0; i < nPoints; i++) {
+			int x;
+			int y;
+			std::cin >> x >> y;
+			points.push_back(Point(x, y));
+		}
 		NeuralNetwork network(points);
 		network.process();
 	} catch (const std::string &message) {
@@ -328,5 +356,5 @@ int main() {
 	} catch (...) {
 		printf("Unknown exception caught\n");
 	}
-    return 0;
+	return 0;
 }
