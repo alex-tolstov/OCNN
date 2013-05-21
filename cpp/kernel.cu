@@ -109,10 +109,16 @@ __global__ void calcDynamics(
 		return;
 	}
 	float sum = 0.0f;
+	float norm = 0.0f;
 	for (int i = 0; i < nNeurons; i++) {
-		sum += neuronInput[i] * weightMatrix[i * nNeurons + neuronIdx];
+		if (i != neuronIdx) {
+			float w = weightMatrix[i * nNeurons + neuronIdx];
+			norm += w;
+			float prev = neuronInput[i];
+			sum += logistic(prev) * w;
+		}
 	}
-	output[neuronIdx] = normCoeff * logistic(sum);
+	output[neuronIdx] = (1.0f / norm) * sum;
 }
 
 
@@ -165,13 +171,13 @@ __global__ void zeroInts(int *ar, int count) {
 рандом в диапазоне от -1 до 1
 
 */
-__global__ void pseudoRandom(float *ar, int size) {
-	int idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (idx >= size) {
-		return;
-	}
-	ar[idx] = -1.0f + 2.0 / (idx % 3 + 1);
-}
+//__global__ void pseudoRandom(float *ar, int size) {
+//	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+//	if (idx >= size) {
+//		return;
+//	}
+//	ar[idx] = -1.0f + 2.0 / (idx % 3 + 1);
+//}
 
 inline int divRoundUp(int a, int b) {
 	return (a - 1) / b + 1;
@@ -199,12 +205,23 @@ void processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<float> output(nNeurons);
 
 		std::vector<float> stateHost(nNeurons);
+		srand(23);
+		for (int i = 0; i < nNeurons; i++) {
+			stateHost[i] = (250 - rand() % 500) / 250.0f;
+		}
+		printf("INITIAL\r\n");
+		for (int j = 0; j < nNeurons; j++) {
+			printf("%5.4f ", stateHost[j]);
+		}
+		printf("\r\n");
+		input.copyFromHost(&stateHost[0], nNeurons);
+		output.copyFromHost(&stateHost[0], nNeurons);
 		dim3 blockDim(256);
 		dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
 		float *ptrEven = input.getDevPtr();
-		checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrEven, nNeurons)));
+		//checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrEven, nNeurons)));
 		float *ptrOdd = output.getDevPtr();
-		checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrOdd, nNeurons)));
+		//checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrOdd, nNeurons)));
 		
 		for (int i = 0; i < startObservationTime; i++) {
 			checkKernelRun((
@@ -290,6 +307,15 @@ private:
 			it != diagram.adjList.end();
 			++it
 		) {
+			printf("[%s]\r\n", it->site.prints().c_str());
+			for (
+				std::set<voronoi::Point, voronoi::PointComparatorY>::iterator i = it->nextToThis.begin();
+				i != it->nextToThis.end();
+				++i
+			) {
+				printf("%s ",i->prints().c_str());
+			}
+			printf("\r\n");
 			sumAverages += it->getAverageDistance();
 		}
 		totalAverage = sumAverages / (nPoints + 0.0);
@@ -303,7 +329,7 @@ private:
 		for (int i = 0; i < nPoints; i++) {
 			for (int j = i + 1; j < nPoints; j++) {
 				double sqDist = points[i].squaredDistanceTo(points[j]);
-				double k = sqDist / (2.0 * totalAverage * totalAverage);
+				double k = sqDist / (2.0 * totalAverage);
 				float result = expf(-k);
 				sumCoeffs += result * 2;
 				weightMatrix[i * nPoints + j] = result;
@@ -325,7 +351,7 @@ public:
 		::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
-			5,
+			10,
 			40,
 			0.8,
 			1.0f / this->sumCoeffs
