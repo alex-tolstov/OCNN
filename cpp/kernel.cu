@@ -101,8 +101,7 @@ __global__ void calcDynamics(
 	float *weightMatrix,
 	float *neuronInput,
 	float *output,
-	int nNeurons,
-	const float normCoeff
+	int nNeurons
 ) {
 	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
 	if (neuronIdx >= nNeurons) {
@@ -167,32 +166,66 @@ __global__ void zeroInts(int *ar, int count) {
 	ar[idx] = 0;
 }
 
-/*
-рандом в диапазоне от -1 до 1
-
-*/
-//__global__ void pseudoRandom(float *ar, int size) {
-//	int idx = threadIdx.x + blockIdx.x * blockDim.x;
-//	if (idx >= size) {
-//		return;
-//	}
-//	ar[idx] = -1.0f + 2.0 / (idx % 3 + 1);
-//}
-
 inline int divRoundUp(int a, int b) {
 	return (a - 1) / b + 1;
 }
 
-void processOscillatoryChaoticNetworkDynamics(
+void randomSetHost(std::vector<float> &vals) {
+	srand(23);
+	for (int i = 0; i < static_cast<int>(vals.size()); i++) {
+		vals[i] = (250 - rand() % 500) / 250.0f;
+	}
+}
+
+void debugPrintArray(std::vector<float> &vals) {
+	for (int j = 0; j < static_cast<int>(vals.size()); j++) {
+		printf("%5.4f ", vals[j]);
+	}
+	printf("\r\n");
+}
+
+struct Group {
+	int idx;
+	int host;
+	std::vector<int> list;
+
+	Group(int idx) 
+		: idx(idx)
+		, list(1, idx) 
+		, host(idx)
+	{
+	}
+
+	void rebase(std::vector<Group> &groups, int newHost) {
+		for (int i = 0; i < size(); i++) {
+			groups[list[i]].host = newHost;
+		}
+	}
+
+	void addAll(Group &second, std::vector<Group> &groups) {
+		second.rebase(groups, this->idx);
+		list.insert(list.end(), second.list.begin(), second.list.end());
+	}
+
+	void clear() {
+		list.clear();
+	}
+
+	int size() {
+		return static_cast<int>(list.size());
+	}
+};
+
+
+
+std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 	int nNeurons,
 	const std::vector<float> &weightMatrixHost,
 	int startObservationTime,
 	int nIterations,
-	const float successRate,
-	const float normCoeff
+	const float successRate
 ) {
 	BEGIN_FUNCTION {
-		printf("start oscillatory process, norm coef = %5.4f\r\n", normCoeff);
 		check(nIterations > 0);
 		check(nNeurons > 0);
 		check(startObservationTime >= 0);
@@ -205,23 +238,16 @@ void processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<float> output(nNeurons);
 
 		std::vector<float> stateHost(nNeurons);
-		srand(23);
-		for (int i = 0; i < nNeurons; i++) {
-			stateHost[i] = (250 - rand() % 500) / 250.0f;
-		}
+		::randomSetHost(stateHost);
 		printf("INITIAL\r\n");
-		for (int j = 0; j < nNeurons; j++) {
-			printf("%5.4f ", stateHost[j]);
-		}
-		printf("\r\n");
+		::debugPrintArray(stateHost);
+
 		input.copyFromHost(&stateHost[0], nNeurons);
 		output.copyFromHost(&stateHost[0], nNeurons);
 		dim3 blockDim(256);
 		dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
 		float *ptrEven = input.getDevPtr();
-		//checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrEven, nNeurons)));
 		float *ptrOdd = output.getDevPtr();
-		//checkKernelRun((pseudoRandom<<<gridDim, blockDim>>>(ptrOdd, nNeurons)));
 		
 		for (int i = 0; i < startObservationTime; i++) {
 			checkKernelRun((
@@ -229,8 +255,7 @@ void processOscillatoryChaoticNetworkDynamics(
 					weightMatrixDevice.getDevPtr(),
 					ptrEven,
 					ptrOdd,
-					nNeurons,
-					normCoeff
+					nNeurons
 				)
 			));
 			if (output.getDevPtr() == ptrOdd) {
@@ -238,14 +263,21 @@ void processOscillatoryChaoticNetworkDynamics(
 			} else {
 				input.copyToHost(&stateHost[0], stateHost.size());
 			}
-			for (int j = 0; j < nNeurons; j++) {
-				printf("%5.4f ", stateHost[j]);
-			}
-			printf("\r\n");
+			::debugPrintArray(stateHost);
 			std::swap(ptrEven, ptrOdd);
 		}
 
 		DeviceScopedPtr1D<int> hits(nNeurons * nNeurons);
+		{
+			dim3 blockDimFill(256);
+			dim3 gridDimFill(divRoundUp(nNeurons * nNeurons, blockDimFill.x));
+			checkKernelRun((
+				zeroInts<<<gridDimFill, blockDimFill>>>(
+					hits.getDevPtr(),
+					nNeurons * nNeurons
+				)
+			));
+		}
 		DeviceScopedPtr1D<int> currentHits(nNeurons);
 		std::vector<int> currentHitsHost(nNeurons);
 
@@ -256,9 +288,10 @@ void processOscillatoryChaoticNetworkDynamics(
 					hits.getDevPtr(),
 					currentHits.getDevPtr(),
 					nNeurons,
-					1e-2f
+					0.06f
 				)
 			));
+
 	//		currentHits.copyToHost(&currentHitsHost[0], nNeurons);
 	//		for (int j = 0; j < nNeurons; j++) {
 	//			printf("%d ", currentHitsHost[j]);
@@ -270,8 +303,7 @@ void processOscillatoryChaoticNetworkDynamics(
 					weightMatrixDevice.getDevPtr(),
 					ptrEven,
 					ptrOdd,
-					nNeurons,
-					normCoeff
+					nNeurons
 				)
 			));
 			if (output.getDevPtr() == ptrOdd) {
@@ -279,24 +311,51 @@ void processOscillatoryChaoticNetworkDynamics(
 			} else {
 				input.copyToHost(&stateHost[0], stateHost.size());
 			}
-			for (int j = 0; j < nNeurons; j++) {
-				printf("%5.4f ", stateHost[j]);
-			}
-			printf("\r\n");
+			::debugPrintArray(stateHost);
 			std::swap(ptrEven, ptrOdd);
 		}
+		std::vector<int> hitsHost(nNeurons * nNeurons);
+		hits.copyToHost(&hitsHost[0], nNeurons * nNeurons);
 
+		printf("Hits matrix: \r\n");
+
+		std::vector<Group> groups;
+		groups.reserve(nNeurons);
+		for (int i = 0; i < nNeurons; i++) {
+			groups.push_back(Group(i));
+		}
+		for (int i = 0; i < nNeurons; i++) {
+			for (int j = 0; j < nNeurons; j++) {
+				if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
+					if (groups[i].host != groups[j].host) {
+						int host1 = groups[i].host;
+						int host2 = groups[j].host;
+						
+						if (groups[host1].size() >= groups[host2].size()) {
+							groups[host1].addAll(groups[host2], groups);
+							groups[host2].clear();
+						} else {
+							groups[host2].addAll(groups[host1], groups);
+							groups[host1].clear();
+						}
+					}
+					//printf("1 ");
+				} else {
+					//printf("0 ");
+				}
+				//printf("%4d ", hitsHost[i * nNeurons + j]);
+			}
+			//printf("\r\n");
+		}
+		return groups;
 	} END_FUNCTION
 }
-
-
 
 class NeuralNetwork {
 private:
 	std::vector<voronoi::Point> points;
 	std::vector<float> weightMatrix;
 	double totalAverage;
-	double sumCoeffs;
 
 	void createVoronoiDiagram() {
 		voronoi::VoronoiFortuneComputing diagram(points);
@@ -325,13 +384,11 @@ private:
 	void calcWeightCoefs() {
 		int nPoints = static_cast<int>(points.size());
 		weightMatrix.resize(nPoints * nPoints, 0.0f);
-		sumCoeffs = 0.0;
 		for (int i = 0; i < nPoints; i++) {
 			for (int j = i + 1; j < nPoints; j++) {
 				double sqDist = points[i].squaredDistanceTo(points[j]);
 				double k = sqDist / (2.0 * totalAverage);
 				float result = expf(-k);
-				sumCoeffs += result * 2;
 				weightMatrix[i * nPoints + j] = result;
 				weightMatrix[j * nPoints + i] = result;
 			}
@@ -348,14 +405,22 @@ public:
 	}
 
 	void process() {
-		::processOscillatoryChaoticNetworkDynamics(
+		std::vector<Group> groups = ::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
 			10,
-			40,
-			0.8,
-			1.0f / this->sumCoeffs
+			100,
+			0.25f
 		);
+		for (int i = 0; i < static_cast<int>(groups.size()); i++) {
+			if (groups[i].size() > 1) {
+				printf("Got a new group: ");
+				for (int j = 0; j < groups[i].size(); j++) {
+					printf("[%s] ", points[groups[i].list[j]].prints().c_str());
+				}
+				printf("\r\n");
+			}
+		}
 		printf("GURO\n");
 	}
 };
