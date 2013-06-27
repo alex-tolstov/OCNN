@@ -121,6 +121,22 @@ __global__ void calcDynamics(
 }
 
 
+__global__ void phaseSyncCheck(float *prevOutput, float *currOutput, int *gt, int nNeurons, int iteration) {
+	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
+
+	if (neuronIdx >= nNeurons) {
+		return;
+	}
+
+	bool value = currOutput[neuronIdx] > prevOutput[neuronIdx];
+	int result = 0;
+	if (value) {
+		result = 1;
+	}
+	gt[iteration * nNeurons + neuronIdx] = result;
+}
+
+
 /*
 Имеем N нейронов, каждому thread даем 1 нейрон.
 Идем по всем остальным нейронам, сравнивая текущее значение
@@ -223,6 +239,7 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 	const std::vector<float> &weightMatrixHost,
 	int startObservationTime,
 	int nIterations,
+	bool preferPhaseSyncRatherThanFragmentary,
 	const float successRate
 ) {
 	BEGIN_FUNCTION {
@@ -280,6 +297,7 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 		}
 		DeviceScopedPtr1D<int> currentHits(nNeurons);
 		std::vector<int> currentHitsHost(nNeurons);
+		DeviceScopedPtr1D<int> gt(nNeurons * nIterations);
 
 		for (int i = 0; i < nIterations; i++) {
 			checkKernelRun((
@@ -306,6 +324,15 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 					nNeurons
 				)
 			));
+			checkKernelRun((
+				phaseSyncCheck<<<gridDim, blockDim>>>(
+					ptrEven,
+					ptrOdd,
+					gt.getDevPtr(),
+					nNeurons,
+					i
+				)
+			));
 			if (output.getDevPtr() == ptrOdd) {
 				output.copyToHost(&stateHost[0], stateHost.size());
 			} else {
@@ -314,41 +341,101 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 			::debugPrintArray(stateHost);
 			std::swap(ptrEven, ptrOdd);
 		}
-		std::vector<int> hitsHost(nNeurons * nNeurons);
-		hits.copyToHost(&hitsHost[0], nNeurons * nNeurons);
 
-		printf("Hits matrix: \r\n");
+		if (preferPhaseSyncRatherThanFragmentary) {
+			// phase synchronization
+			std::vector<int> gtHost(nIterations * nNeurons);
+			gt.copyToHost(&gtHost[0], gtHost.size());
 
-		std::vector<Group> groups;
-		groups.reserve(nNeurons);
-		for (int i = 0; i < nNeurons; i++) {
-			groups.push_back(Group(i));
-		}
-		for (int i = 0; i < nNeurons; i++) {
-			for (int j = 0; j < nNeurons; j++) {
-				if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
-					if (groups[i].host != groups[j].host) {
-						int host1 = groups[i].host;
-						int host2 = groups[j].host;
-						
-						if (groups[host1].size() >= groups[host2].size()) {
-							groups[host1].addAll(groups[host2], groups);
-							groups[host2].clear();
-						} else {
-							groups[host2].addAll(groups[host1], groups);
-							groups[host1].clear();
+			std::vector<Group> groups;
+			groups.reserve(nNeurons);
+			for (int i = 0; i < nNeurons; i++) {
+				groups.push_back(Group(i));
+			}
+			for (int first = 0; first < nNeurons; first++) {
+				for (int second = 0; second < nNeurons; second++) {
+					int bad = 0;
+					for (int i = 0; i < nIterations; i++) {
+						if (gtHost[i * nNeurons + first] != gtHost[i * nNeurons + second]) {
+							bad++;
 						}
 					}
-					//printf("1 ");
-				} else {
-					//printf("0 ");
+					float badPercent = (bad + 0.0f) / nIterations;
+				//	printf("[%d][%d] = %.3f percent bad\r\n", first, second, badPercent);
+					int i = first;
+					int j = second;
+					bool equals = badPercent < 0.35f;
+					if (equals) {
+						if (groups[i].host != groups[j].host) {
+							int host1 = groups[i].host;
+							int host2 = groups[j].host;
+							
+							if (groups[host1].size() >= groups[host2].size()) {
+								groups[host1].addAll(groups[host2], groups);
+								groups[host2].clear();
+							} else {
+								groups[host2].addAll(groups[host1], groups);
+								groups[host1].clear();
+							}
+						}
+					}
 				}
-				//printf("%4d ", hitsHost[i * nNeurons + j]);
 			}
-			//printf("\r\n");
+			return groups;
+		} else {
+			// fragmentary synchronization
+			std::vector<int> hitsHost(nNeurons * nNeurons);
+			hits.copyToHost(&hitsHost[0], nNeurons * nNeurons);
+
+			printf("Hits matrix: \r\n");
+
+			
+			std::vector<Group> groups;
+			groups.reserve(nNeurons);
+			for (int i = 0; i < nNeurons; i++) {
+				groups.push_back(Group(i));
+			}
+			for (int i = 0; i < nNeurons; i++) {
+				for (int j = 0; j < nNeurons; j++) {
+					if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
+						if (groups[i].host != groups[j].host) {
+							int host1 = groups[i].host;
+							int host2 = groups[j].host;
+							
+							if (groups[host1].size() >= groups[host2].size()) {
+								groups[host1].addAll(groups[host2], groups);
+								groups[host2].clear();
+							} else {
+								groups[host2].addAll(groups[host1], groups);
+								groups[host1].clear();
+							}
+						}
+						//printf("1 ");
+					} else {
+						//printf("0 ");
+					}
+					//printf("%4d ", hitsHost[i * nNeurons + j]);
+				}
+				//printf("\r\n");
+			}
+			return groups;
 		}
-		return groups;
 	} END_FUNCTION
+}
+
+#include "EasyBMP.h"
+
+void printPoint(BMP &bitmap, int x, int y, int r, int g, int b) {
+	const int shiftX[5] = {0, 0, 0, 1, -1};
+	const int shiftY[5] = {0, 1, -1, 0, 0};
+	for (int i = 0; i < 5; i++) {
+		int currX = min(512, max(x + shiftX[i], 0));
+		int currY = min(512, max(y + shiftY[i], 0));
+
+		bitmap(currX, currY)->Red = r;
+		bitmap(currX, currY)->Green = g;
+		bitmap(currX, currY)->Blue = b;
+	}
 }
 
 class NeuralNetwork {
@@ -356,6 +443,7 @@ private:
 	std::vector<voronoi::Point> points;
 	std::vector<float> weightMatrix;
 	double totalAverage;
+	
 
 	void createVoronoiDiagram() {
 		voronoi::VoronoiFortuneComputing diagram(points);
@@ -408,19 +496,42 @@ public:
 		std::vector<Group> groups = ::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
-			10,
 			100,
+			400,
+			true,
 			0.25f
 		);
+		BMP bitmap;
+		bitmap.SetSize(512, 512);
+
+		std::vector<bool> used(points.size(), false);
+
 		for (int i = 0; i < static_cast<int>(groups.size()); i++) {
 			if (groups[i].size() > 1) {
 				printf("Got a new group: ");
+				srand(i * 232);
+				int red = rand()%150 + 56;
+				int green = rand()%150 + 56;
+				int blue = rand()%200 + 55;
 				for (int j = 0; j < groups[i].size(); j++) {
+					int x = points[groups[i].list[j]].x + 256;
+					int y = points[groups[i].list[j]].y + 256;
+					used[groups[i].list[j]] = true;
+					printPoint(bitmap, x, y, red, green, blue);
 					printf("[%s] ", points[groups[i].list[j]].prints().c_str());
 				}
 				printf("\r\n");
 			}
 		}
+
+		for (int i = 0; i < points.size(); i++) {
+			if (!used[i]) {
+				int x = points[i].x + 256;
+				int y = points[i].y + 256;
+				printPoint(bitmap, x, y, 0, 0, 0);
+			}
+		}
+		bitmap.WriteToFile("c:\\voronoi\\result.bmp");
 		printf("GURO\n");
 	}
 };
@@ -435,8 +546,8 @@ int main() {
 		int nPoints;
 		std::cin >> nPoints;
 		for (int i = 0; i < nPoints; i++) {
-			int x;
-			int y;
+			float x;
+			float y;
 			std::cin >> x >> y;
 			points.push_back(Point(x, y));
 		}
