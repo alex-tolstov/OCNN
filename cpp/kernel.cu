@@ -482,7 +482,7 @@ public:
 			this->points.size(), 
 			this->weightMatrix,
 			100,
-			400,
+			1000,
 			true,
 			0.25f
 		);
@@ -521,13 +521,21 @@ public:
 	}
 };
 
+#include "find_points.h"
+
+
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
-		check(freopen("C:\\voronoi\\result.txt", "w", stdout) != NULL);
+//		check(freopen("C:\\voronoi\\result.txt", "w", stdout) != NULL);
 		using voronoi::Point;
 		std::vector<Point> points;
 
+		finder::ImageToPointsConverter conv("C:/voronoi/input.bmp");
+	//	std::vector<voronoi::Point> points;
+		conv.fillVector(points);
+		printf("size = %d\n", points.size());
+/*
 		int nPoints;
 		std::cin >> nPoints;
 		srand(nPoints);
@@ -541,6 +549,7 @@ int main() {
 			std::cin >> x >> y;
 			points.push_back(Point(x, y));
 		}
+*/
 		NeuralNetwork network(points);
 		network.process();
 	} catch (const std::string &message) {

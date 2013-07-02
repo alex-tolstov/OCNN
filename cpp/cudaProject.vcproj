@@ -189,6 +189,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\find_points.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\kernel.cu"
 				>
 			</File>
@@ -204,6 +208,10 @@
 			>
 			<File
 				RelativePath=".\EasyBMP.h"
+				>
+			</File>
+			<File
+				RelativePath=".\find_points.h"
 				>
 			</File>
 			<File
