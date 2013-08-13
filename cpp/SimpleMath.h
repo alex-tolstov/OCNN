@@ -10,6 +10,8 @@
 
 #define QUOTE(A) #A
 
+const std::string WORKING_DIR = "C:/voronoi/";
+
 inline void check(bool b) {
 	if (!b) {
 		throw std::string("GANVO");
@@ -219,10 +221,35 @@ struct TripleComp : public std::binary_function<Triple, Triple, bool> {
 	bool operator () (const Triple &first, const Triple &second) const;
 };
 
-class VoronoiFortuneComputing {
-public:
+class NeighborsListContainer {
+public: 
 	std::set<NeighborsList> adjList;
 
+protected:
+	
+	void addData(const Point *main, const Point *a, const Point *b) {
+		NeighborsList list(*main);
+		if (adjList.find(list) != adjList.end()) {
+			// gets an element
+			std::set<NeighborsList>::iterator it = adjList.find(list);
+			it->add(*a);
+			it->add(*b);
+		} else {
+			list.add(*a);
+			list.add(*b);
+			adjList.insert(list);
+		}
+	}
+		
+	void addDataFromTriple(const Point *a, const Point *b, const Point *c) {
+		addData(a, b, c);
+		addData(b, a, c);
+		addData(c, a, b);
+	}
+};
+
+class VoronoiFortuneComputing : public NeighborsListContainer {
+public:
 	VoronoiFortuneComputing(std::vector<Point> &p);
 	
 private:
@@ -245,10 +272,6 @@ private:
 		std::set<Triple, TripleComp> &beachArcs
 	);
 	
-	void addData(const Point *main, const Point *a, const Point *b);
-	
-	void addDataFromTriple(const Point *a, const Point *b, const Point *c);
-
 	void processVertexEvent(
 		std::set<Breakpoint, BreakpointComp> &breakpoints, 
 		std::set<Triple, TripleComp> &beachArcs, 
@@ -256,6 +279,47 @@ private:
 		float sweepLineY, 
 		Point *probablyInclude
 	);
+};
+
+#include <stdio.h>
+
+class DelaunayComputingQhull : public NeighborsListContainer {
+public:
+	
+	DelaunayComputingQhull(std::vector<Point> &p) {
+		const std::string INPUT = WORKING_DIR + "curSaved.txt";
+		const std::string OUTPUT = WORKING_DIR + "curResult.txt";
+
+		FILE *savedInput = fopen(INPUT.c_str(), "w");
+		fprintf(savedInput, "%d %d", 2, static_cast<int>(p.size()) );
+		for (int i = 0; i < static_cast<int>(p.size()); i++) {
+			fprintf(savedInput, "%f %f", p[i].x, p[i].y);
+		}
+		fclose(savedInput);
+
+		std::string cmd(WORKING_DIR + "qdelaunay.exe TI '" + INPUT + "' i TO '" + OUTPUT + "'");
+		FILE *file = _popen(cmd.c_str(), "r");
+		_pclose(file);
+
+		FILE *out = fopen(OUTPUT.c_str(), "r");
+		if (out == NULL) {
+			throw std::string("error while opening output file " + OUTPUT);
+		}
+
+
+		int nTriples;
+		fscanf(out, "%d", &nTriples);
+		for (int i = 0; i < nTriples; i++) {
+			int first;
+			int second;
+			int third;
+			fscanf(out, "%d %d %d", &first, &second, &third);
+			this->addDataFromTriple(&p[first], &p[second], &p[third]);
+		}
+		fclose(out);
+	}
+private:
+
 };
 
 } // namespace voronoi

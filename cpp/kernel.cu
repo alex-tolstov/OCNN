@@ -254,14 +254,17 @@ struct Group {
 	}
 };
 
-
+enum SyncType {
+	PHASE = 0,
+	FRAGMENTARY
+};
 
 std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 	int nNeurons,
 	const std::vector<float> &weightMatrixHost,
 	int startObservationTime,
 	int nIterations,
-	bool preferPhaseSyncRatherThanFragmentary,
+	SyncType syncType,
 	const float successRate
 ) {
 	BEGIN_FUNCTION {
@@ -322,7 +325,7 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<int> gt(nNeurons);
 
 		for (int i = 0; i < nIterations; i++) {
-			if (!preferPhaseSyncRatherThanFragmentary) {
+			if (syncType == FRAGMENTARY) {
 				checkKernelRun((
 					dynamicsAnalysis<<<gridDim, blockDim>>>(
 						ptrEven,
@@ -343,7 +346,7 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 				)
 			));
 
-			if (preferPhaseSyncRatherThanFragmentary) {
+			if (syncType == PHASE) {
 				checkKernelRun((
 					phaseSyncCheck<<<gridDim, blockDim>>>(
 						ptrEven,
@@ -382,13 +385,10 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 		for (int i = 0; i < nNeurons; i++) {
 			groups.push_back(Group(i));
 		}
-		float rate = successRate;
-		if (preferPhaseSyncRatherThanFragmentary) {
-			rate = 1 - 0.35f;
-		}
+		
 		for (int i = 0; i < nNeurons; i++) {
 			for (int j = 0; j < nNeurons; j++) {
-				if (hitsHost[i * nNeurons + j] > rate * nIterations) {
+				if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
 					if (groups[i].host != groups[j].host) {
 						int host1 = groups[i].host;
 						int host2 = groups[j].host;
@@ -430,8 +430,7 @@ private:
 	double totalAverage;
 	
 
-	void createVoronoiDiagram() {
-		voronoi::VoronoiFortuneComputing diagram(points);
+	void createVoronoiDiagram(voronoi::NeighborsListContainer &diagram) {
 		int nPoints = static_cast<int>(points.size());
 		check(nPoints > 0);
 		double sumAverages = 0.0;
@@ -470,21 +469,21 @@ private:
 
 public:
 
-	NeuralNetwork(const std::vector<voronoi::Point> &points) 
+	NeuralNetwork(const std::vector<voronoi::Point> &points, voronoi::NeighborsListContainer &diagram) 
 		: points(points)
 	{
-		createVoronoiDiagram();
+		createVoronoiDiagram(diagram);
 		calcWeightCoefs();
 	}
 
-	void process() {
+	void process(const std::string &fileName, SyncType syncType, float successRate) {
 		std::vector<Group> groups = ::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
 			100,
 			1000,
-			true,
-			0.25f
+			syncType,
+			successRate
 		);
 		BMP bitmap;
 		bitmap.SetSize(512, 512);
@@ -516,7 +515,7 @@ public:
 				printPoint(bitmap, x, y, 0, 0, 0);
 			}
 		}
-		bitmap.WriteToFile("c:\\voronoi\\result.bmp");
+		bitmap.WriteToFile(fileName.c_str());
 		printf("GURO\n");
 	}
 };
@@ -527,31 +526,62 @@ public:
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
-//		check(freopen("C:\\voronoi\\result.txt", "w", stdout) != NULL);
+		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
 		using voronoi::Point;
 		std::vector<Point> points;
 
-		finder::ImageToPointsConverter conv("C:/voronoi/input.bmp");
-	//	std::vector<voronoi::Point> points;
+		finder::ImageToPointsConverter conv(WORKING_DIR + "input.bmp");
 		conv.fillVector(points);
+
 		printf("size = %d\n", points.size());
+
+	//	int nPoints;
+	//	std::cin >> nPoints;
+		std::string syncTypeString;
+		std::cin >> syncTypeString;
+		float successRate = 0.f;
+		std::cin >> successRate;
 /*
-		int nPoints;
-		std::cin >> nPoints;
 		srand(nPoints);
 		for (int i = 0; i < nPoints; i++) {
-			float x; //= rand() % 64;
-			float y;// = rand() % 64;
-			//if (i % 2 == 0) {
-			//	x = -x - 60;
-				
-			//}
-			std::cin >> x >> y;
+			float x = rand() % 100;
+			float y = rand() % 100;
+			if (i % 2 == 0) {
+				x = -x - 100;
+			}
+			//std::cin >> x >> y;
 			points.push_back(Point(x, y));
 		}
 */
-		NeuralNetwork network(points);
-		network.process();
+		SyncType syncType;
+		
+		if (syncTypeString == "phase") {
+			syncType = PHASE;
+			//successRate = 0.75f;
+		} else if (syncTypeString == "fragmentary") {
+			syncType = FRAGMENTARY;
+			//successRate = 0.25f;
+		} else {
+			throw std::string("Wrong synchronization type name: " + syncTypeString);
+		}
+
+		{
+
+			voronoi::DelaunayComputingQhull diagram(points);
+			NeuralNetwork network2(points, diagram);
+			network2.process(WORKING_DIR + "result_qhull.bmp", syncType, successRate);
+			
+		}
+
+		{
+
+			voronoi::VoronoiFortuneComputing diagram(points);
+
+			NeuralNetwork network(points, diagram);
+			network.process(WORKING_DIR + "result_fortu.bmp", syncType, successRate);
+
+		}
+
 	} catch (const std::string &message) {
 		printf("Error, message = %s", message.c_str());
 	} catch (...) {

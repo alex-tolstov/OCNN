@@ -579,26 +579,6 @@ namespace voronoi {
 		}
 	}
 		
-	void VoronoiFortuneComputing::addData(const Point *main, const Point *a, const Point *b) {
-		NeighborsList list(*main);
-		if (adjList.find(list) != adjList.end()) {
-			// gets an element
-			std::set<NeighborsList>::iterator it = adjList.find(list);
-			it->add(*a);
-			it->add(*b);
-		} else {
-			list.add(*a);
-			list.add(*b);
-			adjList.insert(list);
-		}
-	}
-		
-	void VoronoiFortuneComputing::addDataFromTriple(const Point *a, const Point *b, const Point *c) {
-		addData(a, b, c);
-		addData(b, a, c);
-		addData(c, a, b);
-	}
-
 	void VoronoiFortuneComputing::processVertexEvent(
 		std::set<Breakpoint, BreakpointComp> &breakpoints, 
 		std::set<Triple, TripleComp> &beachArcs, 
