@@ -197,7 +197,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\..\..\..\Desktop\ocnn\cpp\TestingFortune.cpp"
+				RelativePath=".\TestingFortune.cpp"
 				>
 			</File>
 		</Filter>
@@ -215,7 +215,7 @@
 				>
 			</File>
 			<File
-				RelativePath="..\..\..\..\..\Desktop\ocnn\cpp\SimpleMath.h"
+				RelativePath=".\SimpleMath.h"
 				>
 			</File>
 		</Filter>

@@ -12,9 +12,11 @@
 
 const std::string WORKING_DIR = "C:/voronoi/";
 
+const std::string INPUT_FILE_NAME = WORKING_DIR + "input.bmp";
+
 inline void check(bool b) {
 	if (!b) {
-		throw std::string("GANVO");
+		throw std::string("check: error");
 	}
 }
 //#define check(EXPRESSION) \
@@ -287,13 +289,14 @@ class DelaunayComputingQhull : public NeighborsListContainer {
 public:
 	
 	DelaunayComputingQhull(std::vector<Point> &p) {
-		const std::string INPUT = WORKING_DIR + "curSaved.txt";
+		const std::string INPUT = WORKING_DIR + "curSaves.txt";
 		const std::string OUTPUT = WORKING_DIR + "curResult.txt";
 
-		FILE *savedInput = fopen(INPUT.c_str(), "w");
-		fprintf(savedInput, "%d %d", 2, static_cast<int>(p.size()) );
+		FILE *savedInput = fopen(INPUT.c_str(), "wb");
+		fprintf(savedInput, "%d %d", 2, static_cast<int>(p.size()));
+		fprintf(savedInput, "\r\n");
 		for (int i = 0; i < static_cast<int>(p.size()); i++) {
-			fprintf(savedInput, "%f %f", p[i].x, p[i].y);
+			fprintf(savedInput, "%f %f \r\n", p[i].x, p[i].y);
 		}
 		fclose(savedInput);
 
@@ -301,7 +304,7 @@ public:
 		FILE *file = _popen(cmd.c_str(), "r");
 		_pclose(file);
 
-		FILE *out = fopen(OUTPUT.c_str(), "r");
+		FILE *out = fopen(OUTPUT.c_str(), "rb");
 		if (out == NULL) {
 			throw std::string("error while opening output file " + OUTPUT);
 		}

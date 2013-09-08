@@ -1,12 +1,11 @@
 
 #include "cuda_runtime.h"
-//#include "device_launch_parameters.h"
 
 #include <iostream>
 #include <string>
 #include <vector>
 
-#include "C:\\Users\\Alex\\Desktop\\ocnn\\cpp\\SimpleMath.h"
+#include "SimpleMath.h"
 
 
 template <typename T> 
@@ -526,11 +525,15 @@ public:
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
+		
+		std::cout << "Waiting for read file " << INPUT_FILE_NAME << " with points" << std::endl;
+		std::cout << "[phase,p,P,1|fragmentary,f,F,2] [successRate:0..1]" << std::endl;
+
 		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
 		using voronoi::Point;
 		std::vector<Point> points;
-
-		finder::ImageToPointsConverter conv(WORKING_DIR + "input.bmp");
+		
+		finder::ImageToPointsConverter conv(INPUT_FILE_NAME);
 		conv.fillVector(points);
 
 		printf("size = %d\n", points.size());
@@ -555,12 +558,19 @@ int main() {
 */
 		SyncType syncType;
 		
-		if (syncTypeString == "phase") {
+		if (syncTypeString == "phase" || 
+			syncTypeString == "p" || 
+			syncTypeString == "P" || 
+			syncTypeString == "1"
+		) {
 			syncType = PHASE;
-			//successRate = 0.75f;
-		} else if (syncTypeString == "fragmentary") {
+		} else if (
+			syncTypeString == "fragmentary" || 
+			syncTypeString == "f" || 
+			syncTypeString == "F" ||
+			syncTypeString == "2"
+		) {
 			syncType = FRAGMENTARY;
-			//successRate = 0.25f;
 		} else {
 			throw std::string("Wrong synchronization type name: " + syncTypeString);
 		}

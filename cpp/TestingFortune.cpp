@@ -638,25 +638,25 @@ namespace voronoi {
 		hi.addIfGood(breakpoints);
 	}
 
-	void solve() {
-		int nPoints=10;
-		std::cin >> nPoints;
-
-		std::vector<Point> pa;
-		srand(134);
-		for (int i = 0; i < nPoints; i++) {
-			float x = rand() % 500;
-			float y = rand() % 500;
-			printf("%.4f %.4f\r\n", x, y);
-			//std::cin >> x >> y;
-			pa.push_back(Point(x, y));
-		}
-		VoronoiFortuneComputing com(pa);
-	}
+//	void solve() {
+//		int nPoints=10;
+//		std::cin >> nPoints;
+//
+//		std::vector<Point> pa;
+//		srand(134);
+//		for (int i = 0; i < nPoints; i++) {
+//			float x = rand() % 500;
+//			float y = rand() % 500;
+//			printf("%.4f %.4f\r\n", x, y);
+//			//std::cin >> x >> y;
+//			pa.push_back(Point(x, y));
+//		}
+//		VoronoiFortuneComputing com(pa);
+//	}
 	
 	
 		
-	void run() {
-		solve();
-	}
+//	void run() {
+//		solve();
+//	}
 }

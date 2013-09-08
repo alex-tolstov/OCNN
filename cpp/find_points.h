@@ -2,7 +2,7 @@
 #define FIND_POINTS_H_
 
 
-#include "C:\\Users\\Alex\\Desktop\\ocnn\\cpp\\SimpleMath.h"
+#include "SimpleMath.h"
 
 #include "EasyBMP.h"
 
