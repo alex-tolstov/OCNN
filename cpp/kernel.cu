@@ -2,6 +2,7 @@
 #include "cuda_runtime.h"
 
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -525,37 +526,115 @@ public:
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
-		
-		std::cout << "Waiting for read file " << INPUT_FILE_NAME << " with points" << std::endl;
+
 		std::cout << "[phase,p,P,1|fragmentary,f,F,2] [successRate:0..1]" << std::endl;
 
-		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
-		using voronoi::Point;
-		std::vector<Point> points;
-		
-		finder::ImageToPointsConverter conv(INPUT_FILE_NAME);
-		conv.fillVector(points);
-
-		printf("size = %d\n", points.size());
-
-	//	int nPoints;
-	//	std::cin >> nPoints;
 		std::string syncTypeString;
 		std::cin >> syncTypeString;
 		float successRate = 0.f;
 		std::cin >> successRate;
-/*
-		srand(nPoints);
-		for (int i = 0; i < nPoints; i++) {
-			float x = rand() % 100;
-			float y = rand() % 100;
-			if (i % 2 == 0) {
-				x = -x - 100;
+
+		std::cout << "To read from " << INPUT_FILE_NAME << ", type 1" << std::endl;
+		std::cout << "To read points from file, type 2" << std::endl;
+		std::cout << "To use generator of random points in [-100, 100] interval, type 3" << std::endl;
+		std::cout << "To read points from modified FCPS base, type 4" << std::endl;
+		
+		std::string type;
+		std::cin >> type;
+
+		using voronoi::Point;
+		std::vector<Point> points;
+
+		if (type == "1") {
+			std::cout << "Waiting for read file " << INPUT_FILE_NAME << " with points" << std::endl;
+			finder::ImageToPointsConverter conv(INPUT_FILE_NAME);
+			conv.fillVector(points);
+		} else if (type == "2") {
+			std::cout << "Type full file name [default:input_points.txt]" << std::endl;
+			std::string fileWithPoints;
+			std::cin >> fileWithPoints;
+
+			if (fileWithPoints == "") {
+				fileWithPoints = "input_points.txt";
 			}
-			//std::cin >> x >> y;
-			points.push_back(Point(x, y));
+			std::cout << "Using file with points: " << fileWithPoints << std::endl;
+
+			std::ifstream pointsStream;
+			pointsStream.open(fileWithPoints.c_str(), std::ifstream::in);
+			if (!pointsStream.good()) {
+				std::cout << "Error of opening file" << std::endl;
+				throw std::string("Error of opening");
+			}
+
+			int nPoints;
+			pointsStream >> nPoints;
+
+			std::cout << "Points: " << nPoints << std::endl;
+
+			for (int i = 0; i < nPoints; i++) {
+				float x;
+				float y;
+				pointsStream >> x >> y;
+				points.push_back(Point(x, y));
+			}
+
+			pointsStream.close();
+		} else if (type == "3") {
+			std::cout << "Type number of points: " << std::endl;
+			int nPoints;
+			std::cin >> nPoints;
+
+			srand(nPoints);
+			for (int i = 0; i < nPoints; i++) {
+				float x = rand() % 100;
+				float y = rand() % 100;
+				if (i % 2 == 0) {
+					x = -x - 100;
+				}
+				points.push_back(Point(x, y));
+			}
+		} else if (type == "4") {
+			std::cout << "Type full file name [default:C:\\voronoi\\two_diamonds.in] : (d)" << std::endl;
+			std::string fileWithPoints;
+			std::cin >> fileWithPoints;
+
+			if (fileWithPoints == "d") {
+				fileWithPoints = "C:\\voronoi\\two_diamonds.in";
+			}
+			std::cout << "Using file with points: " << fileWithPoints << std::endl;
+
+			std::ifstream pointsStream;
+			pointsStream.open(fileWithPoints.c_str(), std::ifstream::in);
+			if (!pointsStream.good()) {
+				std::cout << "Error of opening file" << std::endl;
+				throw std::string("Error of opening");
+			}
+			
+			int nPoints;
+			pointsStream >> nPoints;
+
+			int scale = 50;
+			std::cout << "Points: " << nPoints << ", scaling factor =" << scale << "x" << std::endl;
+
+			for (int i = 0; i < nPoints; i++) {
+				float x;
+				float y;
+				int idx;
+				pointsStream >> idx >> x >> y;
+				points.push_back(Point(x * scale, y * scale));
+			}
+
+			pointsStream.close();
+		} else {
+			std::cout << "Unknown token = " << type << ", exiting.." << std::endl;
+			throw std::string("Unknown type");
 		}
-*/
+		
+
+		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
+		
+		printf("size = %d\n", points.size());
+
 		SyncType syncType;
 		
 		if (syncTypeString == "phase" || 
@@ -583,7 +662,7 @@ int main() {
 			
 		}
 
-		{
+		if (false) {
 
 			voronoi::VoronoiFortuneComputing diagram(points);
 
