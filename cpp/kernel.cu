@@ -300,18 +300,18 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 					nNeurons
 				)
 			));
-			if (output.getDevPtr() == ptrOdd) {
-				output.copyToHost(&stateHost[0], stateHost.size());
-			} else {
-				input.copyToHost(&stateHost[0], stateHost.size());
-			}
-			::debugPrintArray(stateHost);
+		//	if (output.getDevPtr() == ptrOdd) {
+		//		output.copyToHost(&stateHost[0], stateHost.size());
+		//	} else {
+		//		input.copyToHost(&stateHost[0], stateHost.size());
+		//	}
+		//	::debugPrintArray(stateHost);
 			std::swap(ptrEven, ptrOdd);
 		}
 
 		DeviceScopedPtr1D<int> hits(nNeurons * nNeurons);
 		{
-			dim3 blockDimFill(256);
+			dim3 blockDimFill(512);
 			dim3 gridDimFill(divRoundUp(nNeurons * nNeurons, blockDimFill.x));
 			checkKernelRun((
 				zeroInts<<<gridDimFill, blockDimFill>>>(
@@ -365,12 +365,12 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 					)
 				));
 			}
-			if (output.getDevPtr() == ptrOdd) {
-				output.copyToHost(&stateHost[0], stateHost.size());
-			} else {
-				input.copyToHost(&stateHost[0], stateHost.size());
-			}
-			::debugPrintArray(stateHost);
+		//	if (output.getDevPtr() == ptrOdd) {
+		//		output.copyToHost(&stateHost[0], stateHost.size());
+		//	} else {
+		//		input.copyToHost(&stateHost[0], stateHost.size());
+		//}
+		//	::debugPrintArray(stateHost);
 			std::swap(ptrEven, ptrOdd);
 		}
 
@@ -494,9 +494,9 @@ public:
 			if (groups[i].size() > 1) {
 				printf("Got a new group: ");
 				srand(i * 232);
-				int red = rand()%150 + 56;
-				int green = rand()%150 + 56;
-				int blue = rand()%200 + 55;
+				int red = rand() % 190 + 56;
+				int green = rand() % 190 + 56;
+				int blue = rand() % 200 + 55;
 				for (int j = 0; j < groups[i].size(); j++) {
 					int x = points[groups[i].list[j]].x + 256;
 					int y = points[groups[i].list[j]].y + 256;
@@ -594,13 +594,21 @@ int main() {
 				points.push_back(Point(x, y));
 			}
 		} else if (type == "4") {
-			std::cout << "Type full file name [default:C:\\voronoi\\two_diamonds.in] : (d)" << std::endl;
-			std::string fileWithPoints;
-			std::cin >> fileWithPoints;
-
-			if (fileWithPoints == "d") {
-				fileWithPoints = "C:\\voronoi\\two_diamonds.in";
+			std::string files[5] = {
+				"C:\\voronoi\\TwoDiamonds.lrn",
+				"C:\\voronoi\\EngyTime.lrn",
+				"C:\\voronoi\\Lsun.lrn",
+				"C:\\voronoi\\Target.lrn",
+				"C:\\voronoi\\WingNut.lrn"
+			};
+			std::cout << "Type index of using file: " << std::endl;
+			for (int i = 0; i < 5; i++) {
+				std::cout << "To use: " << files[i] << ", type " << i + 1 << std::endl;
 			}
+			int idx;
+			std::cin >> idx;
+			idx = std::min(5, std::max(0, idx));
+			std::string fileWithPoints = files[idx - 1];
 			std::cout << "Using file with points: " << fileWithPoints << std::endl;
 
 			std::ifstream pointsStream;
@@ -610,10 +618,19 @@ int main() {
 				throw std::string("Error of opening");
 			}
 			
+			std::string percent;
+			pointsStream >> percent;
+			check(percent == "%");
 			int nPoints;
 			pointsStream >> nPoints;
 
-			int scale = 50;
+			char buf[1024];
+			pointsStream.getline(buf, 1024);
+			pointsStream.getline(buf, 1024);
+			pointsStream.getline(buf, 1024);
+			pointsStream.getline(buf, 1024);
+
+			int scale = 20;
 			std::cout << "Points: " << nPoints << ", scaling factor =" << scale << "x" << std::endl;
 
 			for (int i = 0; i < nPoints; i++) {
