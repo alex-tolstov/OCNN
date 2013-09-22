@@ -5,6 +5,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <sstream>
 
 #include "SimpleMath.h"
 
@@ -182,15 +183,28 @@ __global__ void dynamicsAnalysis(
 
 	int hitsCount = 0;
 	float curr = currOutput[neuronIdx];
+	float rcurr = 1.f / curr;
 	for (int oppositeIdx = neuronIdx + 1; oppositeIdx < nNeurons; oppositeIdx++) {
 		// загрузить в shared-память, может быть? но может и L1-кэш нормально справится
 		float opp = currOutput[oppositeIdx];
-		float diff = fabsf(opp - curr);
-		// equals
-		if (diff < eps) {
-			// немножко греховно
-			nHits[neuronIdx * nNeurons + oppositeIdx]++;
-			hitsCount++;
+		if (true) {
+			float diff = fabsf(opp - curr);
+			// equals
+			if (diff < eps) {
+				// немножко греховно
+				nHits[neuronIdx * nNeurons + oppositeIdx]++;
+				hitsCount++;
+			}
+		} else {
+			float diff = fabsf(opp - curr);
+			float err = fabsf(diff * curr);
+			if (err > 1) {
+				err = 1.f / err;
+			}
+			if (1 - err < eps) {
+				nHits[neuronIdx * nNeurons + oppositeIdx]++;
+				hitsCount++;
+			}
 		}
 	}
 	nCurrentStepHits[neuronIdx] = hitsCount;
@@ -265,7 +279,8 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 	int startObservationTime,
 	int nIterations,
 	SyncType syncType,
-	const float successRate
+	const float successRate,
+	const float fragmentaryEPS
 ) {
 	BEGIN_FUNCTION {
 		check(nIterations > 0);
@@ -332,7 +347,7 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 						hits.getDevPtr(),
 						currentHits.getDevPtr(),
 						nNeurons,
-						0.06f
+						fragmentaryEPS
 					)
 				));
 			}
@@ -459,7 +474,7 @@ private:
 		for (int i = 0; i < nPoints; i++) {
 			for (int j = i + 1; j < nPoints; j++) {
 				double sqDist = points[i].squaredDistanceTo(points[j]);
-				double k = sqDist / (2.0 * totalAverage);
+				double k = sqDist / (2.0 * totalAverage * totalAverage);
 				float result = expf(-k);
 				weightMatrix[i * nPoints + j] = result;
 				weightMatrix[j * nPoints + i] = result;
@@ -476,14 +491,15 @@ public:
 		calcWeightCoefs();
 	}
 
-	void process(const std::string &fileName, SyncType syncType, float successRate) {
+	void process(const std::string &fileName, SyncType syncType, float successRate, float fragmentaryEPS) {
 		std::vector<Group> groups = ::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
-			100,
-			1000,
+			500,
+			2900,
 			syncType,
-			successRate
+			successRate,
+			fragmentaryEPS
 		);
 		BMP bitmap;
 		bitmap.SetSize(512, 512);
@@ -647,11 +663,6 @@ int main() {
 			throw std::string("Unknown type");
 		}
 		
-
-		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
-		
-		printf("size = %d\n", points.size());
-
 		SyncType syncType;
 		
 		if (syncTypeString == "phase" || 
@@ -671,12 +682,30 @@ int main() {
 			throw std::string("Wrong synchronization type name: " + syncTypeString);
 		}
 
+		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
+		
+		printf("size = %d\n", points.size());
+
 		{
 
-			voronoi::DelaunayComputingQhull diagram(points);
-			NeuralNetwork network2(points, diagram);
-			network2.process(WORKING_DIR + "result_qhull.bmp", syncType, successRate);
-			
+			if (syncType == FRAGMENTARY) {
+				voronoi::DelaunayComputingQhull diagram(points);
+				for (float fragmentaryEPS = 0.091f+0.03f; fragmentaryEPS < 0.2f; fragmentaryEPS += 0.03f) {
+					NeuralNetwork network2(points, diagram);
+					std::stringstream ss;
+					ss << WORKING_DIR << "result_qhull_fragm_e_" << fragmentaryEPS << "_sr_" << successRate << ".bmp";
+					network2.process(ss.str(), syncType, successRate, fragmentaryEPS);
+				}
+			} else {
+				voronoi::DelaunayComputingQhull diagram(points);
+				for (float successRateLocal = 0.51f; successRateLocal < 0.97f; successRateLocal += 0.03f) {
+					NeuralNetwork network2(points, diagram);
+					std::stringstream ss;
+					ss << WORKING_DIR << "result_qhull_phase" << successRateLocal << ".bmp";
+					network2.process(ss.str(), syncType, successRateLocal, 0);
+				}
+			}
+
 		}
 
 		if (false) {
@@ -684,7 +713,7 @@ int main() {
 			voronoi::VoronoiFortuneComputing diagram(points);
 
 			NeuralNetwork network(points, diagram);
-			network.process(WORKING_DIR + "result_fortu.bmp", syncType, successRate);
+			network.process(WORKING_DIR + "result_fortu.bmp", syncType, successRate,0);
 
 		}
 
