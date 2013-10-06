@@ -114,6 +114,7 @@ __global__ void calcDynamics(
 		if (i != neuronIdx) {
 			float w = weightMatrix[i * nNeurons + neuronIdx];
 			norm += w;
+			// можно заоптимизировать, если вычислять не 1 neuron per thread, а больше.
 			float prev = neuronInput[i];
 			sum += logistic(prev) * w;
 		}
@@ -124,6 +125,8 @@ __global__ void calcDynamics(
 /*
 Фазовая синхронизация (инплейсный режим).
 
+Данная задача, возможно, эффективно решилась бы сортировкой. Но, по ходу, количество хитов
+нам тут не получится редуцировать в что-то меньшее, чем O(N^2).
 */
 
 __global__ void phaseSyncCheckInplace(int *currGT, int *hits, int nNeurons) {
@@ -134,7 +137,7 @@ __global__ void phaseSyncCheckInplace(int *currGT, int *hits, int nNeurons) {
 		return;
 	}
 
-	// вполне себе coalesced
+	// вполне себе coalesced, но тоже можно улучшить, применяя ILP.
 	int first = currGT[neuronIdxFirst];
 	int second = currGT[neuronIdxSecond];
 
@@ -144,6 +147,9 @@ __global__ void phaseSyncCheckInplace(int *currGT, int *hits, int nNeurons) {
 }
 
 
+/**
+Простейшая функция, работает очень быстро.
+*/
 __global__ void phaseSyncCheck(float *prevOutput, float *currOutput, int *gt, int nNeurons) {
 	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -183,28 +189,15 @@ __global__ void dynamicsAnalysis(
 
 	int hitsCount = 0;
 	float curr = currOutput[neuronIdx];
-	float rcurr = 1.f / curr;
 	for (int oppositeIdx = neuronIdx + 1; oppositeIdx < nNeurons; oppositeIdx++) {
 		// загрузить в shared-память, может быть? но может и L1-кэш нормально справится
 		float opp = currOutput[oppositeIdx];
-		if (true) {
-			float diff = fabsf(opp - curr);
-			// equals
-			if (diff < eps) {
-				// немножко греховно
-				nHits[neuronIdx * nNeurons + oppositeIdx]++;
-				hitsCount++;
-			}
-		} else {
-			float diff = fabsf(opp - curr);
-			float err = fabsf(diff * curr);
-			if (err > 1) {
-				err = 1.f / err;
-			}
-			if (1 - err < eps) {
-				nHits[neuronIdx * nNeurons + oppositeIdx]++;
-				hitsCount++;
-			}
+		float diff = fabsf(opp - curr);
+		// equals
+		if (diff < eps) {
+			// немножко греховно
+			nHits[neuronIdx * nNeurons + oppositeIdx]++;
+			hitsCount++;
 		}
 	}
 	nCurrentStepHits[neuronIdx] = hitsCount;
@@ -273,13 +266,12 @@ enum SyncType {
 	FRAGMENTARY
 };
 
-std::vector<Group> processOscillatoryChaoticNetworkDynamics(
+std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int nNeurons,
 	const std::vector<float> &weightMatrixHost,
 	int startObservationTime,
 	int nIterations,
 	SyncType syncType,
-	const float successRate,
 	const float fragmentaryEPS
 ) {
 	BEGIN_FUNCTION {
@@ -391,37 +383,38 @@ std::vector<Group> processOscillatoryChaoticNetworkDynamics(
 
 		std::vector<int> hitsHost(nNeurons * nNeurons);
 		hits.copyToHost(&hitsHost[0], nNeurons * nNeurons);
+		return hitsHost;
+	} END_FUNCTION
+}
 
-		printf("Hits matrix: \r\n");
+std::vector<Group> divideOnGroups(int nNeurons, int nIterations, float successRate, std::vector<int> &hitsHost) {
+	std::vector<Group> groups;
+	groups.reserve(nNeurons);
+	for (int i = 0; i < nNeurons; i++) {
+		groups.push_back(Group(i));
+	}
 
-		
-		std::vector<Group> groups;
-		groups.reserve(nNeurons);
-		for (int i = 0; i < nNeurons; i++) {
-			groups.push_back(Group(i));
-		}
-		
-		for (int i = 0; i < nNeurons; i++) {
-			for (int j = 0; j < nNeurons; j++) {
-				if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
-					if (groups[i].host != groups[j].host) {
-						int host1 = groups[i].host;
-						int host2 = groups[j].host;
-						
-						if (groups[host1].size() >= groups[host2].size()) {
-							groups[host1].addAll(groups[host2], groups);
-							groups[host2].clear();
-						} else {
-							groups[host2].addAll(groups[host1], groups);
-							groups[host1].clear();
-						}
+	for (int i = 0; i < nNeurons; i++) {
+		for (int j = 0; j < nNeurons; j++) {
+			if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
+				if (groups[i].host != groups[j].host) {
+					int host1 = groups[i].host;
+					int host2 = groups[j].host;
+
+					if (groups[host1].size() >= groups[host2].size()) {
+						groups[host1].addAll(groups[host2], groups);
+						groups[host2].clear();
+					} else {
+						groups[host2].addAll(groups[host1], groups);
+						groups[host1].clear();
 					}
 				}
 			}
 		}
-		return groups;
-	} END_FUNCTION
+	}
+	return groups;
 }
+
 
 #include "EasyBMP.h"
 
@@ -491,48 +484,53 @@ public:
 		calcWeightCoefs();
 	}
 
-	void process(const std::string &fileName, SyncType syncType, float successRate, float fragmentaryEPS) {
-		std::vector<Group> groups = ::processOscillatoryChaoticNetworkDynamics(
+	void process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS) {
+		const int nIterations = 500;
+		std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
-			500,
-			2900,
+			200,
+			nIterations,
 			syncType,
-			successRate,
 			fragmentaryEPS
 		);
-		BMP bitmap;
-		bitmap.SetSize(512, 512);
 
-		std::vector<bool> used(points.size(), false);
+		for (int sr = 0; sr < successRates.size(); sr++) {
+			std::vector<Group> groups = ::divideOnGroups(this->points.size(), nIterations, successRates[sr], hits);
+			BMP bitmap;
+			bitmap.SetSize(512, 512);
 
-		for (int i = 0; i < static_cast<int>(groups.size()); i++) {
-			if (groups[i].size() > 1) {
-				printf("Got a new group: ");
-				srand(i * 232);
-				int red = rand() % 190 + 56;
-				int green = rand() % 190 + 56;
-				int blue = rand() % 200 + 55;
-				for (int j = 0; j < groups[i].size(); j++) {
-					int x = points[groups[i].list[j]].x + 256;
-					int y = points[groups[i].list[j]].y + 256;
-					used[groups[i].list[j]] = true;
-					printPoint(bitmap, x, y, red, green, blue);
-					printf("[%s] ", points[groups[i].list[j]].prints().c_str());
+			std::vector<bool> used(points.size(), false);
+
+			for (int i = 0; i < static_cast<int>(groups.size()); i++) {
+				if (groups[i].size() > 1) {
+					printf("Got a new group: ");
+					srand(i * 232);
+					int red = rand() % 190 + 56;
+					int green = rand() % 190 + 56;
+					int blue = rand() % 200 + 55;
+					for (int j = 0; j < groups[i].size(); j++) {
+						int x = points[groups[i].list[j]].x + 256;
+						int y = points[groups[i].list[j]].y + 256;
+						used[groups[i].list[j]] = true;
+						printPoint(bitmap, x, y, red, green, blue);
+						printf("[%s] ", points[groups[i].list[j]].prints().c_str());
+					}
+					printf("\r\n");
 				}
-				printf("\r\n");
 			}
-		}
 
-		for (int i = 0; i < points.size(); i++) {
-			if (!used[i]) {
-				int x = points[i].x + 256;
-				int y = points[i].y + 256;
-				printPoint(bitmap, x, y, 0, 0, 0);
+			for (int i = 0; i < points.size(); i++) {
+				if (!used[i]) {
+					int x = points[i].x + 256;
+					int y = points[i].y + 256;
+					printPoint(bitmap, x, y, 0, 0, 0);
+				}
 			}
+			std::stringstream ss;
+			ss << WORKING_DIR << "ss_" << successRates[sr] << "_" << fileName;
+			bitmap.WriteToFile(ss.str().c_str());
 		}
-		bitmap.WriteToFile(fileName.c_str());
-		printf("GURO\n");
 	}
 };
 
@@ -646,7 +644,7 @@ int main() {
 			pointsStream.getline(buf, 1024);
 			pointsStream.getline(buf, 1024);
 
-			int scale = 20;
+			int scale = 40;
 			std::cout << "Points: " << nPoints << ", scaling factor =" << scale << "x" << std::endl;
 
 			for (int i = 0; i < nPoints; i++) {
@@ -690,30 +688,39 @@ int main() {
 
 			if (syncType == FRAGMENTARY) {
 				voronoi::DelaunayComputingQhull diagram(points);
-				for (float fragmentaryEPS = 0.091f+0.03f; fragmentaryEPS < 0.2f; fragmentaryEPS += 0.03f) {
+				for (float fragmentaryEPS = 0.01f; fragmentaryEPS <= 0.15f; fragmentaryEPS += 0.01f) {
+					std::vector <float> rates;
+
+					for (float successRateLocal = 0.10f; successRateLocal < 0.5f; successRateLocal += 0.01f) {
+						rates.push_back(successRateLocal);
+					}
 					NeuralNetwork network2(points, diagram);
 					std::stringstream ss;
-					ss << WORKING_DIR << "result_qhull_fragm_e_" << fragmentaryEPS << "_sr_" << successRate << ".bmp";
-					network2.process(ss.str(), syncType, successRate, fragmentaryEPS);
+					ss << "result_qhull_fragm_eps_" << fragmentaryEPS << ".bmp";
+					network2.process(ss.str(), syncType, rates, fragmentaryEPS);
 				}
 			} else {
 				voronoi::DelaunayComputingQhull diagram(points);
-				for (float successRateLocal = 0.51f; successRateLocal < 0.97f; successRateLocal += 0.03f) {
-					NeuralNetwork network2(points, diagram);
-					std::stringstream ss;
-					ss << WORKING_DIR << "result_qhull_phase" << successRateLocal << ".bmp";
-					network2.process(ss.str(), syncType, successRateLocal, 0);
+				std::vector <float> rates;
+
+				for (float successRateLocal = 0.51f; successRateLocal < 1.f; successRateLocal += 0.01f) {
+					rates.push_back(successRateLocal);
 				}
+				
+				NeuralNetwork network2(points, diagram);
+				std::stringstream ss;
+				ss << "result_qhull_phase" << ".bmp";
+				network2.process(ss.str(), syncType, rates, 0);
 			}
 
 		}
 
 		if (false) {
 
-			voronoi::VoronoiFortuneComputing diagram(points);
+//			voronoi::VoronoiFortuneComputing diagram(points);
 
-			NeuralNetwork network(points, diagram);
-			network.process(WORKING_DIR + "result_fortu.bmp", syncType, successRate,0);
+//			NeuralNetwork network(points, diagram);
+//			network.process(WORKING_DIR + "result_fortu.bmp", syncType, successRate,0);
 
 		}
 
