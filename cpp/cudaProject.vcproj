@@ -127,6 +127,7 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
+				AdditionalOptions="-I&quot;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.0\\include&quot; /D_CRT_SECURE_NO_WARNINGS"
 				Optimization="2"
 				EnableIntrinsicFunctions="true"
 				RuntimeLibrary="0"
@@ -194,6 +195,10 @@
 			</File>
 			<File
 				RelativePath=".\kernel.cu"
+				>
+			</File>
+			<File
+				RelativePath=".\main.cpp"
 				>
 			</File>
 			<File

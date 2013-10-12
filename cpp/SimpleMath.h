@@ -14,6 +14,20 @@ const std::string WORKING_DIR = "C:/voronoi/";
 
 const std::string INPUT_FILE_NAME = WORKING_DIR + "input.bmp";
 
+enum SyncType {
+	PHASE,
+	FRAGMENTARY
+};
+
+std::vector<int> processOscillatoryChaoticNetworkDynamics(
+	int nNeurons,
+	const std::vector<float> &weightMatrixHost,
+	int startObservationTime,
+	int nIterations,
+	SyncType syncType,
+	const float fragmentaryEPS
+);
+
 inline void check(bool b) {
 	if (!b) {
 		throw std::string("check: error");
