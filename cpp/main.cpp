@@ -77,7 +77,6 @@ std::vector<Group> divideOnGroups(int nNeurons, int nIterations, float successRa
 	return groups;
 }
 
-
 #include "EasyBMP.h"
 
 void printPoint(BMP &bitmap, int x, int y, int r, int g, int b) {
@@ -98,7 +97,6 @@ private:
 	std::vector<voronoi::Point> points;
 	std::vector<float> weightMatrix;
 	double totalAverage;
-	
 
 	void createVoronoiDiagram(voronoi::NeighborsListContainer &diagram) {
 		int nPoints = static_cast<int>(points.size());
@@ -128,8 +126,8 @@ private:
 		weightMatrix.resize(nPoints * nPoints, 0.0f);
 		for (int i = 0; i < nPoints; i++) {
 			for (int j = i + 1; j < nPoints; j++) {
-				double sqDist = (points[i].squaredDistanceTo(points[j]));
-				double k = sqDist / (2.0 * totalAverage * totalAverage);
+				double sqDist = sqrt(points[i].squaredDistanceTo(points[j]));
+				double k = sqDist / (2.0 * totalAverage);
 				float result = static_cast<float>(exp(-k));
 				weightMatrix[i * nPoints + j] = result;
 				weightMatrix[j * nPoints + i] = result;
@@ -149,11 +147,11 @@ public:
 	static const int N_DEFINED_COLORS = 8;
 	
 	void process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS) {
-		const int nIterations = 2900;
+		const int nIterations = 1000;
 		std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
 			this->points.size(), 
 			this->weightMatrix,
-			800,
+			1000,
 			nIterations,
 			syncType,
 			fragmentaryEPS
@@ -212,7 +210,14 @@ public:
 			}
 			std::stringstream ss;
 			ss << REPORT_DIR;
-			ss << "ss_";
+			if (syncType == FRAGMENTARY) {
+				ss << "eps_";
+				ss.setf(std::ios::fixed, std::ios::floatfield); 
+				ss.precision(4);
+				ss << fragmentaryEPS;
+				ss << "_";
+			}
+			ss << "corr_";
 			ss.setf(std::ios::fixed, std::ios::floatfield); 
 			ss.precision(4);
 			ss << successRates[sr];
@@ -377,33 +382,25 @@ int main() {
 
 			if (syncType == FRAGMENTARY) {
 				voronoi::DelaunayComputingQhull diagram(points);
-				for (float fragmentaryEPS = 0.01f; fragmentaryEPS <= 0.1f; fragmentaryEPS += 0.003f) {
+				for (float fragmentaryEPS = 0.01f; fragmentaryEPS <= 0.10f; fragmentaryEPS += 0.01f) {
 					std::vector <float> rates;
 
-					for (float successRateLocal = 0.10f; successRateLocal < 0.26f; successRateLocal += 0.01f) {
+					for (float successRateLocal = 0.70f; successRateLocal < 0.85f; successRateLocal += 0.01f) {
 						rates.push_back(successRateLocal);
 					}
 					NeuralNetwork network2(points, diagram);
-					std::stringstream ss;
-					ss << "result_qhull_fragm_eps_";
-					ss.setf(std::ios::fixed, std::ios::floatfield);
-					ss.precision(4);
-					ss << fragmentaryEPS; 
-					ss << ".bmp";
-					network2.process(ss.str(), syncType, rates, fragmentaryEPS);
+					network2.process("result_fragm.bmp", syncType, rates, fragmentaryEPS);
 				}
 			} else {
 				voronoi::DelaunayComputingQhull diagram(points);
 				std::vector <float> rates;
 
-				for (float successRateLocal = 0.50f; successRateLocal < 1.f; successRateLocal += 0.001f) {
+				for (float successRateLocal = 0.50f; successRateLocal < 1.f; successRateLocal += 0.01f) {
 					rates.push_back(successRateLocal);
 				}
 				
 				NeuralNetwork network2(points, diagram);
-				std::stringstream ss;
-				ss << "result_qhull_phase" << ".bmp";
-				network2.process(ss.str(), syncType, rates, 0);
+				network2.process("result_phase.bmp", syncType, rates, 0);
 			}
 
 		}

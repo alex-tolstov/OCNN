@@ -277,4 +277,3 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 		return hitsHost;
 	} END_FUNCTION
 }
-
