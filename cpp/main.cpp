@@ -79,6 +79,12 @@ std::vector<Group> divideOnGroups(int nNeurons, int nIterations, float successRa
 
 #include "EasyBMP.h"
 
+void setPixelValue(BMP &bitmap, int x, int y, int r, int g, int b) {
+	bitmap(x, y)->Red = r;
+	bitmap(x, y)->Green = g;
+	bitmap(x, y)->Blue = b;
+}
+
 void printPoint(BMP &bitmap, int x, int y, int r, int g, int b) {
 	const int shiftX[5] = {0, 0, 0, 1, -1};
 	const int shiftY[5] = {0, 1, -1, 0, 0};
@@ -86,9 +92,7 @@ void printPoint(BMP &bitmap, int x, int y, int r, int g, int b) {
 		int currX = std::min(512, std::max(x + shiftX[i], 0));
 		int currY = std::min(512, std::max(y + shiftY[i], 0));
 
-		bitmap(currX, currY)->Red = r;
-		bitmap(currX, currY)->Green = g;
-		bitmap(currX, currY)->Blue = b;
+		setPixelValue(bitmap, currX, currY, r, g, b);
 	}
 }
 
@@ -126,8 +130,10 @@ private:
 		weightMatrix.resize(nPoints * nPoints, 0.0f);
 		for (int i = 0; i < nPoints; i++) {
 			for (int j = i + 1; j < nPoints; j++) {
-				double sqDist = sqrt(points[i].squaredDistanceTo(points[j]));
-				double k = sqDist / (2.0 * totalAverage);
+				double dist = sqrt(points[i].squaredDistanceTo(points[j]));
+				double ta = pow(totalAverage, 2);
+
+				double k = pow(dist, 2) / (2.0 * ta);
 				float result = static_cast<float>(exp(-k));
 				weightMatrix[i * nPoints + j] = result;
 				weightMatrix[j * nPoints + i] = result;
@@ -148,18 +154,38 @@ public:
 	
 	void process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS) {
 		const int nIterations = 1000;
+		std::vector<float> sheet;
+		const int nNeurons = this->points.size();
 		std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
-			this->points.size(), 
+			nNeurons, 
 			this->weightMatrix,
 			1000,
 			nIterations,
 			syncType,
+			sheet,
 			fragmentaryEPS
 		);
+		check(sheet.size() == nIterations * nNeurons);
+
 
 		const std::string REPORT_DIR = WORKING_DIR + "report\\";
-		_rmdir(REPORT_DIR.c_str());
+		//_rmdir(REPORT_DIR.c_str());
 		_mkdir(REPORT_DIR.c_str());
+		BMP bitmapSheet;
+
+		bitmapSheet.SetSize(nIterations, nNeurons);
+		for (int iter = 0; iter < nIterations; iter++) {
+			for (int neuron = 0; neuron < nNeurons; neuron++) {
+				float value = sheet[iter * nNeurons + neuron];
+				int color = static_cast<int>(256 * ((value + 1.f) / 2.f));
+				int red = (color >> 16) & 0xFF;
+				int green = (color >> 8) & 0xFF;
+				int blue = color & 0xFF;
+				setPixelValue(bitmapSheet, iter, neuron, red, green, blue);
+			}
+		}
+		bitmapSheet.WriteToFile(std::string(REPORT_DIR + "sheet.bmp").c_str());
+
 		for (int sr = 0; sr < static_cast<int>(successRates.size()); sr++) {
 			std::vector<Group> groups = ::divideOnGroups(this->points.size(), nIterations, successRates[sr], hits);
 			std::sort(groups.begin(), groups.end(), GroupComparator());
@@ -379,28 +405,26 @@ int main() {
 		printf("size = %d\n", points.size());
 
 		{
-
+			voronoi::DelaunayComputingQhull diagram(points);
 			if (syncType == FRAGMENTARY) {
-				voronoi::DelaunayComputingQhull diagram(points);
-				for (float fragmentaryEPS = 0.01f; fragmentaryEPS <= 0.10f; fragmentaryEPS += 0.01f) {
+				for (float fragmentaryEPS = 0.35f; fragmentaryEPS <= 0.40f; fragmentaryEPS += 0.03f) {
 					std::vector <float> rates;
 
-					for (float successRateLocal = 0.70f; successRateLocal < 0.85f; successRateLocal += 0.01f) {
+					for (float successRateLocal = 0.50f; successRateLocal < 0.99f; successRateLocal += 0.005f) {
 						rates.push_back(successRateLocal);
 					}
-					NeuralNetwork network2(points, diagram);
-					network2.process("result_fragm.bmp", syncType, rates, fragmentaryEPS);
+					NeuralNetwork network(points, diagram);
+					network.process("result_fragm.bmp", syncType, rates, fragmentaryEPS);
 				}
 			} else {
-				voronoi::DelaunayComputingQhull diagram(points);
 				std::vector <float> rates;
 
 				for (float successRateLocal = 0.50f; successRateLocal < 1.f; successRateLocal += 0.01f) {
 					rates.push_back(successRateLocal);
 				}
 				
-				NeuralNetwork network2(points, diagram);
-				network2.process("result_phase.bmp", syncType, rates, 0);
+				NeuralNetwork network(points, diagram);
+				network.process("result_phase.bmp", syncType, rates, 0);
 			}
 
 		}

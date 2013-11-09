@@ -25,6 +25,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int startObservationTime,
 	int nIterations,
 	SyncType syncType,
+	std::vector<float> &sheet,
 	const float fragmentaryEPS
 );
 

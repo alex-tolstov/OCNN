@@ -163,6 +163,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int startObservationTime,
 	int nIterations,
 	SyncType syncType,
+	std::vector<float> &sheet,
 	const float fragmentaryEPS
 ) {
 	BEGIN_FUNCTION {
@@ -188,7 +189,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 		dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
 		float *ptrEven = input.getDevPtr();
 		float *ptrOdd = output.getDevPtr();
-		
+
 		for (int i = 0; i < startObservationTime; i++) {
 			checkKernelRun((
 				calcDynamics<<<gridDim, blockDim>>>(
@@ -221,6 +222,8 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<int> currentHits(nNeurons);
 		std::vector<int> currentHitsHost(nNeurons);
 		DeviceScopedPtr1D<int> gt(nNeurons);
+
+		sheet.resize(nIterations * nNeurons);
 
 		for (int i = 0; i < nIterations; i++) {
 			if (syncType == FRAGMENTARY) {
@@ -263,12 +266,12 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 					)
 				));
 			}
-		//	if (output.getDevPtr() == ptrOdd) {
-		//		output.copyToHost(&stateHost[0], stateHost.size());
-		//	} else {
-		//		input.copyToHost(&stateHost[0], stateHost.size());
-		//}
-		//	::debugPrintArray(stateHost);
+
+			if (output.getDevPtr() == ptrOdd) {
+				output.copyToHost(&sheet[i * nNeurons], nNeurons);
+			} else {
+				input.copyToHost(&sheet[i * nNeurons], nNeurons);
+			}
 			std::swap(ptrEven, ptrOdd);
 		}
 
