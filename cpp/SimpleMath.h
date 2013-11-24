@@ -342,4 +342,11 @@ private:
 
 } // namespace voronoi
 
+/**
+ * @param h от 0 до 360
+ * @param s от 0 до 100
+ * @param v от 0 до 100
+ */
+void hsv2rgb(int h, int s, int v, int &r, int &g, int &b);
+
 #endif // SIMPLE_MATH_H_

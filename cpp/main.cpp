@@ -85,6 +85,53 @@ void setPixelValue(BMP &bitmap, int x, int y, int r, int g, int b) {
 	bitmap(x, y)->Blue = b;
 }
 
+void hsv2rgb(int h, int s, int v, int &r, int &g, int &b) {
+	int part = h / 60;
+	int vMin = (100 - s) * v / 100;
+	int a = (v - vMin) * (h % 60) / 60;
+	
+	int vInc = vMin + a;
+	int vDec = v - a;
+	
+	switch (part) {
+		case 0:
+			r = v;
+			g = vInc;
+			b = vMin;
+			break;
+		case 1:
+			r = vDec;
+			g = v;
+			b = vMin;
+			break;
+		case 2:
+			r = vMin;
+			g = v;
+			b = vInc;
+			break;
+		case 3:
+			r = vMin;
+			g = vDec;
+			b = v;
+			break;
+		case 4:
+			r = vInc;
+			g = vMin;
+			b = v;
+			break;
+		case 5:
+			r = v;
+			g = vMin;
+			b = vDec;
+			break;
+		default:
+			break;
+	}
+	r = std::max(0, std::min(r, 255));
+	g = std::max(0, std::min(g, 255));
+	b = std::max(0, std::min(b, 255));
+}
+
 void printPoint(BMP &bitmap, int x, int y, int r, int g, int b) {
 	const int shiftX[5] = {0, 0, 0, 1, -1};
 	const int shiftY[5] = {0, 1, -1, 0, 0};
@@ -131,9 +178,9 @@ private:
 		for (int i = 0; i < nPoints; i++) {
 			for (int j = i + 1; j < nPoints; j++) {
 				double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-				double ta = pow(totalAverage, 2);
+				double norm = pow(dist / totalAverage, 2);
 
-				double k = pow(dist, 2) / (2.0 * ta);
+				double k = norm / (2.0);
 				float result = static_cast<float>(exp(-k));
 				weightMatrix[i * nPoints + j] = result;
 				weightMatrix[j * nPoints + i] = result;
@@ -153,13 +200,13 @@ public:
 	static const int N_DEFINED_COLORS = 8;
 	
 	void process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS) {
-		const int nIterations = 1000;
+		const int nIterations = 500;
 		std::vector<float> sheet;
 		const int nNeurons = this->points.size();
 		std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
 			nNeurons, 
 			this->weightMatrix,
-			1000,
+			2,
 			nIterations,
 			syncType,
 			sheet,
@@ -174,16 +221,29 @@ public:
 		BMP bitmapSheet;
 
 		bitmapSheet.SetSize(nIterations, nNeurons);
+		float minValue = 100;
+		float maxValue = -100;
 		for (int iter = 0; iter < nIterations; iter++) {
 			for (int neuron = 0; neuron < nNeurons; neuron++) {
 				float value = sheet[iter * nNeurons + neuron];
-				int color = static_cast<int>(256 * ((value + 1.f) / 2.f));
-				int red = (color >> 16) & 0xFF;
-				int green = (color >> 8) & 0xFF;
-				int blue = color & 0xFF;
+				minValue = std::min(minValue, value);
+				maxValue = std::max(maxValue, value);
+
+				int color = static_cast<int>(360 * 10000 * ((value + 1.f) / 2.f));
+				int h = 360 - color / 10000 % 360;
+				int s = 100;//(color % 10000) / 100;
+				int v = 100;//(color % 10000) % 100;
+
+				int red = 0;
+				int green = 0;
+				int blue = 0;
+
+				hsv2rgb(h, s, v, red, green, blue);
+
 				setPixelValue(bitmapSheet, iter, neuron, red, green, blue);
 			}
 		}
+		printf("min = %f, max = %f\n", minValue, maxValue);
 		bitmapSheet.WriteToFile(std::string(REPORT_DIR + "sheet.bmp").c_str());
 
 		for (int sr = 0; sr < static_cast<int>(successRates.size()); sr++) {
@@ -407,10 +467,10 @@ int main() {
 		{
 			voronoi::DelaunayComputingQhull diagram(points);
 			if (syncType == FRAGMENTARY) {
-				for (float fragmentaryEPS = 0.35f; fragmentaryEPS <= 0.40f; fragmentaryEPS += 0.03f) {
+				for (float fragmentaryEPS = 0.10f; fragmentaryEPS <= 0.25f; fragmentaryEPS += 0.01f) {
 					std::vector <float> rates;
 
-					for (float successRateLocal = 0.50f; successRateLocal < 0.99f; successRateLocal += 0.005f) {
+					for (float successRateLocal = 0.50f; successRateLocal < 0.99f; successRateLocal += 0.01f) {
 						rates.push_back(successRateLocal);
 					}
 					NeuralNetwork network(points, diagram);
@@ -419,7 +479,7 @@ int main() {
 			} else {
 				std::vector <float> rates;
 
-				for (float successRateLocal = 0.50f; successRateLocal < 1.f; successRateLocal += 0.01f) {
+				for (float successRateLocal = 0.60f; successRateLocal < 1.f; successRateLocal += 0.01f) {
 					rates.push_back(successRateLocal);
 				}
 				
