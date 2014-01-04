@@ -9,6 +9,9 @@
 #include <map>
 #include <direct.h>
 
+#define NOMINMAX
+#include <windows.h>
+
 #include "SimpleMath.h"
 
 struct Group {
@@ -208,14 +211,14 @@ private:
 					const voronoi::Point &currPoint = points[j];
 					if (basePoint.distanceTo(currPoint) < averageDistance) {
 						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-						double norm = pow(dist / totalAverage, 2);
+						double norm = pow(dist / totalAverage, 0.7);
 						double k = norm / (2.0);
 						float result = static_cast<float>(exp(-k));
 						weightMatrix[i * nPoints + j] = result;
 						weightMatrix[j * nPoints + i] = result;
 					} else {
 						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-						double norm = pow(dist / totalAverage, 2);
+						double norm = pow(dist / totalAverage, 0.7);
 						double k = norm / (2.0);
 						float result = static_cast<float>(exp(-k));
 
@@ -273,6 +276,7 @@ public:
 		const int nIterations = 2000;
 		std::vector<float> sheet;
 		const int nNeurons = this->points.size();
+		DWORD startCudaTime = GetTickCount();
 		std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
 			nNeurons, 
 			this->weightMatrix,
@@ -283,11 +287,10 @@ public:
 			fragmentaryEPS
 		);
 		check(sheet.size() == nIterations * nNeurons);
-
+		DWORD finishCudaTime = GetTickCount();
+		printf("time seconds for cuda calls = %5.3f\r\n", (finishCudaTime - startCudaTime) * 0.001f);
 
 		const std::string REPORT_DIR = WORKING_DIR + "report\\";
-		//_rmdir(REPORT_DIR.c_str());
-		_mkdir(REPORT_DIR.c_str());
 		BMP bitmapSheet;
 
 		bitmapSheet.SetSize(nIterations, nNeurons);
@@ -316,13 +319,18 @@ public:
 				setPixelValue(bitmapSheet, iter, neuron, red, green, blue);
 			}
 		}
-		for (int i = 0; i < static_cast<int>(colorCount.size()); i++) {
-			printf("clrs: %d - %d\r\n", i, colorCount[i]);
-		}
-		printf("min = %f, max = %f\n", minValue, maxValue);
+		DWORD preparedSheetTime = GetTickCount();
+		printf("time seconds for preparing sheet = %5.3f\r\n", (preparedSheetTime - finishCudaTime) * 0.001f);
+//		for (int i = 0; i < static_cast<int>(colorCount.size()); i++) {
+//			printf("clrs: %d - %d\r\n", i, colorCount[i]);
+//		}
+//		printf("min = %f, max = %f\n", minValue, maxValue);
+		
 		bitmapSheet.WriteToFile(std::string(REPORT_DIR + "sheet.bmp").c_str());
-
+		DWORD savedSheetTime = GetTickCount();
+		printf("time seconds for saving sheet to disk = %5.3f\r\n", (savedSheetTime - preparedSheetTime) * 0.001f);
 		for (int sr = 0; sr < static_cast<int>(successRates.size()); sr++) {
+
 			std::vector<Group> groups = ::divideOnGroups(this->points.size(), nIterations, successRates[sr], hits);
 			std::sort(groups.begin(), groups.end(), GroupComparator());
 			BMP bitmap;
@@ -342,7 +350,7 @@ public:
 			};
 			for (int i = 0; i < static_cast<int>(groups.size()); i++) {
 				if (groups[i].size() > 1) {
-					printf("Got a new group: ");
+					//printf("Got a new group: ");
 					srand(i * 232);
 					int red = rand() % 190 + 56;
 					int green = rand() % 190 + 56;
@@ -357,9 +365,9 @@ public:
 						int y = static_cast<int>(points[groups[i].list[j]].y + 256);
 						used[groups[i].list[j]] = true;
 						printPoint(bitmap, x, y, red, green, blue);
-						printf("[%s] ", points[groups[i].list[j]].prints().c_str());
+					//	printf("[%s] ", points[groups[i].list[j]].prints().c_str());
 					}
-					printf("\r\n");
+					//printf("\r\n");
 				}
 			}
 
@@ -387,6 +395,8 @@ public:
 			ss << fileName;
 			bitmap.WriteToFile(ss.str().c_str());
 		}
+		DWORD savedResultsTime = GetTickCount();
+		printf("time seconds for saving results to disk = %5.3f\r\n", (savedResultsTime - savedSheetTime) * 0.001f);
 	}
 };
 
@@ -536,7 +546,9 @@ int main() {
 			throw std::string("Wrong synchronization type name: " + syncTypeString);
 		}
 
-		check(freopen((WORKING_DIR + "result.txt").c_str(), "w", stdout) != NULL);
+		const std::string REPORT_DIR = WORKING_DIR + "report\\";
+		_mkdir(REPORT_DIR.c_str());
+		check(freopen((REPORT_DIR + "result.txt").c_str(), "w", stdout) != NULL);
 		
 		printf("size = %d\n", points.size());
 
