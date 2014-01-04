@@ -175,7 +175,7 @@ public:
 int signum(float value);
 
 struct PointComparatorY : public std::binary_function<Point, Point, bool> {
-	bool operator() (const Point &first, const Point &second) {
+	bool operator() (const Point &first, const Point &second) const {
 		int signY = signum(first.y - second.y);
 		if (signY != 0) {
 			return signY < 0;
@@ -186,7 +186,7 @@ struct PointComparatorY : public std::binary_function<Point, Point, bool> {
 };
 
 struct PointComparatorX : public std::binary_function<Point, Point, bool> {
-	bool operator() (const Point &o1, const Point &o2) {
+	bool operator() (const Point &o1, const Point &o2) const {
 		return o1.x < o2.x;
 	}
 };

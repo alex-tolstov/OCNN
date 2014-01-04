@@ -47,9 +47,14 @@ void ImageToPointsConverter::fillVector(std::vector<voronoi::Point> &result) {
 	}
 
 	std::vector<bool> used(width * height, false);
-	for (int y = 0; y < height; y++) {
-		for (int x = 0; x < width; x++) {
+	for (int x = 0; x < width; x++) {
+		for (int y = 0; y < height; y++) {
 			if (!used[y * width + x] && isGoodColor(x, y)) {
+				result.push_back(voronoi::Point(x, y));
+			}
+		}
+	}
+	/*
 				std::queue<Pos> q;
 				q.push(Pos(x, y));
 				used[y * width + x] = true;
@@ -76,6 +81,7 @@ void ImageToPointsConverter::fillVector(std::vector<voronoi::Point> &result) {
 			}
 		}
 	}
+	*/
 }
 
 } // namespace finder

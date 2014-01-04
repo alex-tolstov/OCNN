@@ -6,6 +6,7 @@
 #include <vector>
 #include <sstream>
 #include <functional>
+#include <map>
 #include <direct.h>
 
 #include "SimpleMath.h"
@@ -146,6 +147,7 @@ void printPoint(BMP &bitmap, int x, int y, int r, int g, int b) {
 class NeuralNetwork {
 private:
 	std::vector<voronoi::Point> points;
+	std::map<voronoi::Point, std::set<voronoi::Point, voronoi::PointComparatorY>, voronoi::PointComparatorY> adjancent;
 	std::vector<float> weightMatrix;
 	double totalAverage;
 
@@ -157,6 +159,7 @@ private:
 			it != diagram.adjList.end();
 			++it
 		) {
+			adjancent.insert(std::pair<voronoi::Point, std::set<voronoi::Point, voronoi::PointComparatorY> >(it->site, it->nextToThis));
 			printf("[%s]\r\n", it->site.prints().c_str());
 			for (
 				std::set<voronoi::Point, voronoi::PointComparatorY>::iterator i = it->nextToThis.begin();
@@ -175,17 +178,84 @@ private:
 	void calcWeightCoefs() {
 		int nPoints = static_cast<int>(points.size());
 		weightMatrix.resize(nPoints * nPoints, 0.0f);
-		for (int i = 0; i < nPoints; i++) {
-			for (int j = i + 1; j < nPoints; j++) {
-				double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-				double norm = pow(dist / totalAverage, 2);
+		double sumDistance = 0.0;
+		std::vector<float> distances(nPoints * nPoints);
 
-				double k = norm / (2.0);
-				float result = static_cast<float>(exp(-k));
-				weightMatrix[i * nPoints + j] = result;
-				weightMatrix[j * nPoints + i] = result;
+		for (int i = 0; i < nPoints; i++) {
+			for (int j = 0; j < nPoints; j++) {
+				float currDist = points[i].distanceTo(points[j]);
+				distances[i * nPoints + j] = currDist;
+				sumDistance += currDist;
 			}
 		}
+		std::sort(distances.begin(), distances.end());
+		
+		float averageDistance = static_cast<float>(sumDistance / (nPoints * nPoints * 1.0));
+		averageDistance = distances[distances.size() / 2]; // mediana
+		
+		BMP weightCoefsBitmap;
+		weightCoefsBitmap.SetSize(nPoints, nPoints);
+
+		float minCoef = 10e5f;
+		float maxCoef = -10e5f;
+		for (int i = 0; i < nPoints; i++) {
+			const voronoi::Point &basePoint = points[i];
+			
+			if (adjancent.find(basePoint) != adjancent.end()) {
+				const std::set<voronoi::Point, voronoi::PointComparatorY> &currAdj = adjancent.find(basePoint)->second;
+
+				for (int j = i + 1; j < nPoints; j++) {
+					const voronoi::Point &currPoint = points[j];
+					if (basePoint.distanceTo(currPoint) < averageDistance) {
+						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
+						double norm = pow(dist / totalAverage, 2);
+						double k = norm / (2.0);
+						float result = static_cast<float>(exp(-k));
+						weightMatrix[i * nPoints + j] = result;
+						weightMatrix[j * nPoints + i] = result;
+					} else {
+						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
+						double norm = pow(dist / totalAverage, 2);
+						double k = norm / (2.0);
+						float result = static_cast<float>(exp(-k));
+
+						weightMatrix[i * nPoints + j] = result;
+						weightMatrix[j * nPoints + i] = result;
+					}
+					float value = weightMatrix[i * nPoints + j];
+					minCoef = std::min(value, minCoef);
+					maxCoef = std::max(value, maxCoef);
+/*
+					if (currAdj.count(currPoint) > 0) {
+						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
+						double norm = pow(dist / totalAverage, 2);
+						double k = norm / (2.0);
+						float result = static_cast<float>(exp(-k));
+						weightMatrix[i * nPoints + j] = result;
+						weightMatrix[j * nPoints + i] = result;
+					} else {
+						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
+						double norm = pow(dist / totalAverage, 2);
+						double k = norm / (2.0);
+						float result = static_cast<float>(exp(-k)) / 8;
+
+						weightMatrix[i * nPoints + j] = result;
+						weightMatrix[j * nPoints + i] = result;
+					}
+*/
+				}
+			}
+		}
+
+		for (int i = 0; i < nPoints; i++) {
+			for (int j = 0; j < nPoints; j++) {
+				float value = weightMatrix[i * nPoints + j];
+				int repr = static_cast<int>(255 * (1.f - (value - minCoef) / (maxCoef - minCoef)));
+				setPixelValue(weightCoefsBitmap, i, j, repr, repr, repr);
+			}
+		}
+		std::cout << "max coef = " << maxCoef << ", minCoef = " << minCoef << std::endl;
+		weightCoefsBitmap.WriteToFile(std::string(WORKING_DIR + "report/coefsMatrix.bmp").c_str());
 	}
 
 public:
@@ -200,7 +270,7 @@ public:
 	static const int N_DEFINED_COLORS = 8;
 	
 	void process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS) {
-		const int nIterations = 500;
+		const int nIterations = 2000;
 		std::vector<float> sheet;
 		const int nNeurons = this->points.size();
 		std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
@@ -223,16 +293,19 @@ public:
 		bitmapSheet.SetSize(nIterations, nNeurons);
 		float minValue = 100;
 		float maxValue = -100;
+		std::vector<int> colorCount(361, 0);
 		for (int iter = 0; iter < nIterations; iter++) {
 			for (int neuron = 0; neuron < nNeurons; neuron++) {
 				float value = sheet[iter * nNeurons + neuron];
 				minValue = std::min(minValue, value);
 				maxValue = std::max(maxValue, value);
 
-				int color = static_cast<int>(360 * 10000 * ((value + 1.f) / 2.f));
-				int h = 360 - color / 10000 % 360;
-				int s = 100;//(color % 10000) / 100;
-				int v = 100;//(color % 10000) % 100;
+				int color = static_cast<int>(360 * ((value + 1.f) / 2.f));
+				color = std::min(360, std::max(0, color));
+				colorCount[color]++;
+				int h = color;
+				int s = 100;
+				int v = 120; // extra value
 
 				int red = 0;
 				int green = 0;
@@ -242,6 +315,9 @@ public:
 
 				setPixelValue(bitmapSheet, iter, neuron, red, green, blue);
 			}
+		}
+		for (int i = 0; i < static_cast<int>(colorCount.size()); i++) {
+			printf("clrs: %d - %d\r\n", i, colorCount[i]);
 		}
 		printf("min = %f, max = %f\n", minValue, maxValue);
 		bitmapSheet.WriteToFile(std::string(REPORT_DIR + "sheet.bmp").c_str());
@@ -434,7 +510,7 @@ int main() {
 				pointsStream >> idx >> x >> y;
 				points.push_back(Point(x * scale, y * scale));
 			}
-
+	//		std::sort(points.begin(), points.end(), voronoi::PointComparatorX());
 			pointsStream.close();
 		} else {
 			std::cout << "Unknown token = " << type << ", exiting.." << std::endl;
@@ -467,10 +543,10 @@ int main() {
 		{
 			voronoi::DelaunayComputingQhull diagram(points);
 			if (syncType == FRAGMENTARY) {
-				for (float fragmentaryEPS = 0.10f; fragmentaryEPS <= 0.25f; fragmentaryEPS += 0.01f) {
+				for (float fragmentaryEPS = 0.0005f; fragmentaryEPS <= 0.005f; fragmentaryEPS += 0.001f) {
 					std::vector <float> rates;
 
-					for (float successRateLocal = 0.50f; successRateLocal < 0.99f; successRateLocal += 0.01f) {
+					for (float successRateLocal = 0.01f; successRateLocal < 0.07f; successRateLocal += 0.003f) {
 						rates.push_back(successRateLocal);
 					}
 					NeuralNetwork network(points, diagram);
