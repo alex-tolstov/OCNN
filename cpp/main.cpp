@@ -211,14 +211,14 @@ private:
 					const voronoi::Point &currPoint = points[j];
 					if (basePoint.distanceTo(currPoint) < averageDistance) {
 						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-						double norm = pow(dist / totalAverage, 0.7);
+						double norm = pow(dist / totalAverage, 2);
 						double k = norm / (2.0);
 						float result = static_cast<float>(exp(-k));
 						weightMatrix[i * nPoints + j] = result;
 						weightMatrix[j * nPoints + i] = result;
 					} else {
 						double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-						double norm = pow(dist / totalAverage, 0.7);
+						double norm = pow(dist / totalAverage, 2);
 						double k = norm / (2.0);
 						float result = static_cast<float>(exp(-k));
 
@@ -555,10 +555,10 @@ int main() {
 		{
 			voronoi::DelaunayComputingQhull diagram(points);
 			if (syncType == FRAGMENTARY) {
-				for (float fragmentaryEPS = 0.0005f; fragmentaryEPS <= 0.005f; fragmentaryEPS += 0.001f) {
+				for (float fragmentaryEPS = 0.20f; fragmentaryEPS <= 0.35f; fragmentaryEPS += 0.01f) {
 					std::vector <float> rates;
 
-					for (float successRateLocal = 0.01f; successRateLocal < 0.07f; successRateLocal += 0.003f) {
+					for (float successRateLocal = 0.5f; successRateLocal < 0.9f; successRateLocal += 0.01f) {
 						rates.push_back(successRateLocal);
 					}
 					NeuralNetwork network(points, diagram);

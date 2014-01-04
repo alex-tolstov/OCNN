@@ -71,27 +71,9 @@ __global__ void calcDynamics(
 /*
 Фазовая синхронизация (инплейсный режим).
 
-Данная задача, возможно, эффективно решилась бы сортировкой. Но, по ходу, количество хитов
-нам тут не получится редуцировать в что-то меньшее, чем O(N^2).
+Использование цикла сравнений на 1 выход позволяет нам очень сильно выиграть во времени, 
+пусть и проиграв по памяти.
 */
-
-__global__ void phaseSyncCheckInplace(int *currGT, int *hits, int nNeurons) {
-	int neuronIdxFirst = threadIdx.x + blockIdx.x * blockDim.x;
-	int neuronIdxSecond = threadIdx.y + blockIdx.y * blockDim.y;
-
-	if (neuronIdxFirst >= nNeurons || neuronIdxSecond >= nNeurons) {
-		return;
-	}
-
-	// вполне себе coalesced, но тоже можно улучшить, применяя ILP.
-	int first = currGT[neuronIdxFirst];
-	int second = currGT[neuronIdxSecond];
-
-	if (first == second) {
-		hits[neuronIdxFirst * nNeurons + neuronIdxSecond]++;
-	}
-}
-
 __global__ void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nNeurons) {
 	int neuronIdxFirst = threadIdx.x + blockIdx.x * blockDim.x;
 	int neuronIdxSecond = threadIdx.y + blockIdx.y * blockDim.y;
@@ -102,8 +84,8 @@ __global__ void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nN
 
 	int count = 0;
 	for (int step = 0; step < nSteps; step++) {
-		int first = currGT[neuronIdxFirst];
-		int second = currGT[neuronIdxSecond];
+		int first = currGT[step * nNeurons + neuronIdxFirst];
+		int second = currGT[step * nNeurons + neuronIdxSecond];
 		if (first == second) {
 			count++;
 		}
@@ -113,9 +95,9 @@ __global__ void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nN
 
 
 /**
-Простейшая функция, работает очень быстро.
+Простейшая функция, для учета увеличения или уменьшения выхода нейрона а также буферизирования значений.
 */
-__global__ void phaseSyncCheck(float *prevOutput, float *currOutput, int *gt, int nNeurons) {
+__global__ void prepareToSynchronizationCheck(float *prevOutput, float *currOutput, int *gt, float *bufferedValues, int nNeurons) {
 	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
 
 	if (neuronIdx >= nNeurons) {
@@ -128,44 +110,32 @@ __global__ void phaseSyncCheck(float *prevOutput, float *currOutput, int *gt, in
 		result = 1;
 	}
 	gt[neuronIdx] = result;
+	bufferedValues[neuronIdx] = currOutput[neuronIdx];
 }
 
 
-/*
-Имеем N нейронов, каждому thread даем 1 нейрон.
-Идем по всем остальным нейронам, сравнивая текущее значение
-выходов, если расхождение меньше допустимого, то увеличиваем счетчик
-"хитов" данной пары нейронов.
-
-А не решить ли ту же самую задачу сортировкой, а??
-Нам надо за O(N Log N) посортировать
+/**
+Использован тот же самый трюк, что и с фазовой синхронизацией - стараемся 
+уменьшить количество выходов, из-за этого выигрываем в разы.
 */
-__global__ void dynamicsAnalysis(
-	float *currOutput,
-	int *nHits,
-	int *nCurrentStepHits,
-	int nNeurons,
-	const float eps
-) {
-	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (neuronIdx >= nNeurons) {
+__global__ void fragmentaryAnalysis(float *currOutput, int nSteps, int *hits, int nNeurons, const float eps) {
+	int neuronIdxFirst = threadIdx.x + blockIdx.x * blockDim.x;
+	int neuronIdxSecond = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if (neuronIdxFirst >= nNeurons || neuronIdxSecond >= nNeurons) {
 		return;
 	}
 
-	int hitsCount = 0;
-	float curr = currOutput[neuronIdx];
-	for (int oppositeIdx = neuronIdx + 1; oppositeIdx < nNeurons; oppositeIdx++) {
-		// загрузить в shared-память, может быть? но может и L1-кэш нормально справится
-		float opp = currOutput[oppositeIdx];
-		float diff = fabsf(opp - curr);
-		// equals
+	int count = 0;
+	for (int step = 0; step < nSteps; step++) {
+		float first = currOutput[step * nNeurons + neuronIdxFirst];
+		float second = currOutput[step * nNeurons + neuronIdxSecond];
+		float diff = fabsf(first - second);
 		if (diff < eps) {
-			// немножко греховно
-			nHits[neuronIdx * nNeurons + oppositeIdx]++;
-			hitsCount++;
+			count++;
 		}
 	}
-	nCurrentStepHits[neuronIdx] = hitsCount;
+	hits[neuronIdxFirst * nNeurons + neuronIdxSecond] += count;
 }
 
 __global__ void zeroInts(int *ar, int count) {
@@ -217,8 +187,6 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 
 		std::vector<float> stateHost(nNeurons);
 		::randomSetHost(stateHost);
-		printf("INITIAL\r\n");
-		::debugPrintArray(stateHost);
 
 		input.copyFromHost(&stateHost[0], nNeurons);
 		output.copyFromHost(&stateHost[0], nNeurons);
@@ -238,12 +206,6 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 					nNeurons
 				)
 			));
-		//	if (output.getDevPtr() == ptrOdd) {
-		//		output.copyToHost(&stateHost[0], stateHost.size());
-		//	} else {
-		//		input.copyToHost(&stateHost[0], stateHost.size());
-		//	}
-		//	::debugPrintArray(stateHost);
 			std::swap(ptrEven, ptrOdd);
 		}
 
@@ -262,29 +224,32 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<int> currentHits(nNeurons);
 		std::vector<int> currentHitsHost(nNeurons);
 
-		const int N_STEPS = 32;	
+		const int N_STEPS = 64;	
 		DeviceScopedPtr1D<int> gt(nNeurons * N_STEPS);
+		DeviceScopedPtr1D<float> bufferedValues(nNeurons * N_STEPS);
 
 		sheet.resize(nIterations * nNeurons);
 
 		int currentStep = 0;
 		for (int i = 0; i < nIterations; i++) {
-			{
-				dim3 fragBlockDim(128);
-				dim3 fragGridDim(divRoundUp(nNeurons, fragBlockDim.x));
-				if (syncType == FRAGMENTARY) {
-					checkKernelRun((
-						dynamicsAnalysis<<<fragGridDim, fragBlockDim>>>(
-							ptrEven,
-							hits.getDevPtr(),
-							currentHits.getDevPtr(),
-							nNeurons,
-							fragmentaryEPS
-						)
-					));
-				}
+			// fragmentary synchronization if needed
+			if (syncType == FRAGMENTARY && currentStep == N_STEPS)  {
+				dim3 blockCheck(32, 8);
+				dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
+
+				checkKernelRun((
+					fragmentaryAnalysis<<<gridCheck, blockCheck>>>(
+						bufferedValues.getDevPtr(),
+						N_STEPS,
+						hits.getDevPtr(),
+						nNeurons,
+						fragmentaryEPS
+					)
+				));
+				currentStep = 0;
 			}
 
+			// computing
 			{
 				dim3 calcBlockDim(128 / SIZE);
 				dim3 calcGridDim(divRoundUp(nNeurons, calcBlockDim.x * SIZE));
@@ -298,20 +263,24 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 				));
 			}
 
+			{
+				dim3 blockDim(128);
+				dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
+				checkKernelRun((
+					prepareToSynchronizationCheck<<<gridDim, blockDim>>>(
+						ptrEven,
+						ptrOdd,
+						gt.getDevPtr() + nNeurons * currentStep,
+						bufferedValues.getDevPtr() + nNeurons * currentStep,
+						nNeurons
+					)
+				));
+				currentStep++;
+			}
+
+			// phase synchronization if needed
 			if (syncType == PHASE) {
-				{
-					dim3 blockDim(128);
-					dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
-					checkKernelRun((
-						phaseSyncCheck<<<gridDim, blockDim>>>(
-							ptrEven,
-							ptrOdd,
-							gt.getDevPtr() + nNeurons * currentStep,
-							nNeurons
-						)
-					));
-					currentStep++;
-				}
+				
 				if (currentStep == N_STEPS) {
 					dim3 blockCheck(32, 8);
 					dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
@@ -327,16 +296,20 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 				}
 			}
 
+			// copying neuron's outputs to host for sheets
 			if (output.getDevPtr() == ptrOdd) {
 				output.copyToHost(&sheet[i * nNeurons], nNeurons);
 			} else {
 				input.copyToHost(&sheet[i * nNeurons], nNeurons);
 			}
+
+			// swapping pointers of input/output
 			std::swap(ptrEven, ptrOdd);
 		}
 
-		if (syncType == PHASE) {
-			if (currentStep != 0) {
+		// for phase synchronization if needed to procede remained
+		if (currentStep != 0) {
+			if (syncType == PHASE) {
 				dim3 blockCheck(32, 8);
 				dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
 				checkKernelRun((
@@ -348,6 +321,21 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 					)
 				));
 				currentStep = 0;
+			} else if (syncType == FRAGMENTARY) {
+				dim3 fragBlockDim(128);
+				dim3 fragGridDim(divRoundUp(nNeurons, fragBlockDim.x));
+				
+				checkKernelRun((
+					fragmentaryAnalysis<<<fragGridDim, fragBlockDim>>>(
+						ptrEven,
+						currentStep,
+						hits.getDevPtr(),
+						nNeurons,
+						fragmentaryEPS
+					)
+				));
+			} else {
+				throw std::logic_error("unknown sync type");
 			}
 		}
 		std::vector<int> hitsHost(nNeurons * nNeurons);
