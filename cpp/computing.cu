@@ -25,6 +25,7 @@ __device__ float logistic(float signal) {
  *
  * Количество тредов = кол-во нейронов в нейронной сети.
  */
+#define SIZE 1
 
 __global__ void calcDynamics(
 	float *weightMatrix,
@@ -32,22 +33,39 @@ __global__ void calcDynamics(
 	float *output,
 	int nNeurons
 ) {
-	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (neuronIdx >= nNeurons) {
+	int neuronIdx[SIZE];
+	#pragma unroll
+	for (int i = 0; i < SIZE; i++) {
+		neuronIdx[i] = threadIdx.x * SIZE + blockIdx.x * blockDim.x * SIZE + i;
+	}
+	if (neuronIdx[SIZE-1] >= nNeurons) {
 		return;
 	}
-	float sum = 0.0f;
-	float norm = 0.0f;
-	for (int i = 0; i < nNeurons; i++) {
-		if (i != neuronIdx) {
-			float w = weightMatrix[i * nNeurons + neuronIdx];
-			norm += w;
-			// можно заоптимизировать, если вычислять не 1 neuron per thread, а больше.
-			float prev = neuronInput[i];
-			sum += logistic(prev) * w;
+
+	float sum[SIZE];
+	float norm[SIZE];
+
+	#pragma unroll
+	for (int i = 0; i < SIZE; i++) {
+		sum[i] = 0.0f;
+		norm[i] = 0.0f;
+	}
+	
+	for (int other = 0; other < nNeurons; other++) {
+		float prev = neuronInput[other];
+	
+		#pragma unroll
+		for (int i = 0; i < SIZE; i++) {
+			float w = weightMatrix[other * nNeurons + neuronIdx[i]];
+			norm[i] += w;
+			sum [i] += prev * w;
 		}
 	}
-	output[neuronIdx] = (1.0f / norm) * sum;
+	
+	#pragma unroll
+	for (int i = 0; i < SIZE; i++) {
+		output[neuronIdx[i]] = logistic((1.0f / norm[i]) * sum[i]);
+	}
 }
 
 /*
@@ -72,6 +90,25 @@ __global__ void phaseSyncCheckInplace(int *currGT, int *hits, int nNeurons) {
 	if (first == second) {
 		hits[neuronIdxFirst * nNeurons + neuronIdxSecond]++;
 	}
+}
+
+__global__ void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nNeurons) {
+	int neuronIdxFirst = threadIdx.x + blockIdx.x * blockDim.x;
+	int neuronIdxSecond = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if (neuronIdxFirst >= nNeurons || neuronIdxSecond >= nNeurons) {
+		return;
+	}
+
+	int count = 0;
+	for (int step = 0; step < nSteps; step++) {
+		int first = currGT[neuronIdxFirst];
+		int second = currGT[neuronIdxSecond];
+		if (first == second) {
+			count++;
+		}
+	}
+	hits[neuronIdxFirst * nNeurons + neuronIdxSecond] += count;
 }
 
 
@@ -185,12 +222,14 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 
 		input.copyFromHost(&stateHost[0], nNeurons);
 		output.copyFromHost(&stateHost[0], nNeurons);
-		dim3 blockDim(256);
-		dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
+		
 		float *ptrEven = input.getDevPtr();
 		float *ptrOdd = output.getDevPtr();
 
 		for (int i = 0; i < startObservationTime; i++) {
+			dim3 blockDim(128 / SIZE);
+			dim3 gridDim(divRoundUp(nNeurons, blockDim.x * SIZE));
+
 			checkKernelRun((
 				calcDynamics<<<gridDim, blockDim>>>(
 					weightMatrixDevice.getDevPtr(),
@@ -219,52 +258,73 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 				)
 			));
 		}
+
 		DeviceScopedPtr1D<int> currentHits(nNeurons);
 		std::vector<int> currentHitsHost(nNeurons);
-		DeviceScopedPtr1D<int> gt(nNeurons);
+
+		const int N_STEPS = 32;	
+		DeviceScopedPtr1D<int> gt(nNeurons * N_STEPS);
 
 		sheet.resize(nIterations * nNeurons);
 
+		int currentStep = 0;
 		for (int i = 0; i < nIterations; i++) {
-			if (syncType == FRAGMENTARY) {
+			{
+				dim3 fragBlockDim(128);
+				dim3 fragGridDim(divRoundUp(nNeurons, fragBlockDim.x));
+				if (syncType == FRAGMENTARY) {
+					checkKernelRun((
+						dynamicsAnalysis<<<fragGridDim, fragBlockDim>>>(
+							ptrEven,
+							hits.getDevPtr(),
+							currentHits.getDevPtr(),
+							nNeurons,
+							fragmentaryEPS
+						)
+					));
+				}
+			}
+
+			{
+				dim3 calcBlockDim(128 / SIZE);
+				dim3 calcGridDim(divRoundUp(nNeurons, calcBlockDim.x * SIZE));
 				checkKernelRun((
-					dynamicsAnalysis<<<gridDim, blockDim>>>(
+					calcDynamics<<<calcGridDim, calcBlockDim>>>(
+						weightMatrixDevice.getDevPtr(),
 						ptrEven,
-						hits.getDevPtr(),
-						currentHits.getDevPtr(),
-						nNeurons,
-						fragmentaryEPS
+						ptrOdd,
+						nNeurons
 					)
 				));
 			}
 
-			checkKernelRun((
-				calcDynamics<<<gridDim, blockDim>>>(
-					weightMatrixDevice.getDevPtr(),
-					ptrEven,
-					ptrOdd,
-					nNeurons
-				)
-			));
-
 			if (syncType == PHASE) {
-				checkKernelRun((
-					phaseSyncCheck<<<gridDim, blockDim>>>(
-						ptrEven,
-						ptrOdd,
-						gt.getDevPtr(),
-						nNeurons
-					)
-				));
-				dim3 blockCheck(32, 8);
-				dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
-				checkKernelRun((
-					phaseSyncCheckInplace<<<gridCheck, blockCheck>>>(
-						gt.getDevPtr(),
-						hits.getDevPtr(),
-						nNeurons
-					)
-				));
+				{
+					dim3 blockDim(128);
+					dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
+					checkKernelRun((
+						phaseSyncCheck<<<gridDim, blockDim>>>(
+							ptrEven,
+							ptrOdd,
+							gt.getDevPtr() + nNeurons * currentStep,
+							nNeurons
+						)
+					));
+					currentStep++;
+				}
+				if (currentStep == N_STEPS) {
+					dim3 blockCheck(32, 8);
+					dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
+					checkKernelRun((
+						phaseSyncCheckInplace<<<gridCheck, blockCheck>>>(
+							gt.getDevPtr(),
+							N_STEPS,
+							hits.getDevPtr(),
+							nNeurons
+						)
+					));
+					currentStep = 0;
+				}
 			}
 
 			if (output.getDevPtr() == ptrOdd) {
@@ -275,6 +335,21 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 			std::swap(ptrEven, ptrOdd);
 		}
 
+		if (syncType == PHASE) {
+			if (currentStep != 0) {
+				dim3 blockCheck(32, 8);
+				dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
+				checkKernelRun((
+					phaseSyncCheckInplace<<<gridCheck, blockCheck>>>(
+						gt.getDevPtr(),
+						currentStep,
+						hits.getDevPtr(),
+						nNeurons
+					)
+				));
+				currentStep = 0;
+			}
+		}
 		std::vector<int> hitsHost(nNeurons * nNeurons);
 		hits.copyToHost(&hitsHost[0], nNeurons * nNeurons);
 		return hitsHost;
