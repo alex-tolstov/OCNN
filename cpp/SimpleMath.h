@@ -26,7 +26,8 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int nIterations,
 	SyncType syncType,
 	std::vector<float> &sheet,
-	const float fragmentaryEPS
+	const float fragmentaryEPS,
+	bool useSingleThreadPerNeuron
 );
 
 inline void check(bool b) {

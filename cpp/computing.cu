@@ -25,48 +25,89 @@ __device__ float logistic(float signal) {
  *
  * Количество тредов = кол-во нейронов в нейронной сети.
  */
-#define SIZE 1
 
-__global__ void calcDynamics(
+__global__ void calcDynamicsOneThread(
 	float *weightMatrix,
 	float *neuronInput,
 	float *output,
 	int nNeurons
 ) {
-	int neuronIdx[SIZE];
-	#pragma unroll
-	for (int i = 0; i < SIZE; i++) {
-		neuronIdx[i] = threadIdx.x * SIZE + blockIdx.x * blockDim.x * SIZE + i;
-	}
-	if (neuronIdx[SIZE-1] >= nNeurons) {
+	int neuronIdx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (neuronIdx >= nNeurons) {
 		return;
 	}
 
-	float sum[SIZE];
-	float norm[SIZE];
-
-	#pragma unroll
-	for (int i = 0; i < SIZE; i++) {
-		sum[i] = 0.0f;
-		norm[i] = 0.0f;
-	}
+	float sum = 0.0f;
+	float norm = 0.0f;
 	
 	for (int other = 0; other < nNeurons; other++) {
+		// все потоки читают одну ячейку памяти + L1 кэш
 		float prev = neuronInput[other];
-	
-		#pragma unroll
-		for (int i = 0; i < SIZE; i++) {
-			float w = weightMatrix[other * nNeurons + neuronIdx[i]];
-			norm[i] += w;
-			sum [i] += prev * w;
+		// опять же, групповое последовательное чтение
+		float w = weightMatrix[other * nNeurons + neuronIdx];
+		norm += w;
+		sum  += prev * w;
+	}
+	output[neuronIdx] = logistic((1.0f / norm) * sum);
+}
+
+
+// ТОЛЬКО СТЕПЕНЬ ДВОЙКИ, А ТО ЦИКЛ НЕ СРАБОТАЕТ
+#define SHARED_BLOCK_DIM_X 256
+
+__global__ void calcDynamicsShared(
+	float *weightMatrix,
+	float *neuronInput,
+	float *output,
+	int nNeurons
+) {
+	int neuronIdx = blockIdx.x;
+
+	if (neuronIdx >= nNeurons) {
+		return;
+	}
+
+	float sum = 0.0f;
+	float norm = 0.0f;
+
+	for (int i = 0; i < nNeurons; i += blockDim.x) {
+		int secondNeuron = i + threadIdx.x;
+		if (secondNeuron < nNeurons) {
+			// все блоки читают этот neuronInput одновременно, оптимизация не требуется.
+			float prev = neuronInput[secondNeuron];
+			// читаем последовательно
+			float w = weightMatrix[neuronIdx * nNeurons + secondNeuron];
+			norm += w;
+			sum  += prev * w;
 		}
 	}
-	
-	#pragma unroll
-	for (int i = 0; i < SIZE; i++) {
-		output[neuronIdx[i]] = logistic((1.0f / norm[i]) * sum[i]);
+
+	__shared__ float sums[SHARED_BLOCK_DIM_X];
+	__shared__ float norms[SHARED_BLOCK_DIM_X];
+
+	sums[threadIdx.x] = sum;
+	norms[threadIdx.x] = norm;
+
+	__syncthreads();
+
+	// NOTE SHARED_BLOCK_DIM_X обязан быть степенью 2.
+	for (int stride = SHARED_BLOCK_DIM_X / 2; stride >= 1; stride = stride / 2) {
+		if (threadIdx.x < stride && threadIdx.x + stride < SHARED_BLOCK_DIM_X) {
+			sums[threadIdx.x]  +=  sums[threadIdx.x + stride];
+			norms[threadIdx.x] += norms[threadIdx.x + stride];
+		}
+		__syncthreads();
+	}
+
+	__syncthreads();
+
+	if (threadIdx.x == 0) {
+		norm = norms[0];
+		sum = sums[0];
+		output[neuronIdx] = logistic((1.0f / norm) * sum);
 	}
 }
+
 
 /*
 Фазовая синхронизация (инплейсный режим).
@@ -171,7 +212,8 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int nIterations,
 	SyncType syncType,
 	std::vector<float> &sheet,
-	const float fragmentaryEPS
+	const float fragmentaryEPS,
+	bool useSingleThreadPerNeuron
 ) {
 	BEGIN_FUNCTION {
 		check(nIterations > 0);
@@ -191,22 +233,35 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 		input.copyFromHost(&stateHost[0], nNeurons);
 		output.copyFromHost(&stateHost[0], nNeurons);
 		
-		float *ptrEven = input.getDevPtr();
-		float *ptrOdd = output.getDevPtr();
+		float *currInputPtr = input.getDevPtr();
+		float *currOutputPtr = output.getDevPtr();
 
 		for (int i = 0; i < startObservationTime; i++) {
-			dim3 blockDim(128 / SIZE);
-			dim3 gridDim(divRoundUp(nNeurons, blockDim.x * SIZE));
+			if (useSingleThreadPerNeuron) {
+				dim3 blockDim(256);
+				dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
 
-			checkKernelRun((
-				calcDynamics<<<gridDim, blockDim>>>(
-					weightMatrixDevice.getDevPtr(),
-					ptrEven,
-					ptrOdd,
-					nNeurons
-				)
-			));
-			std::swap(ptrEven, ptrOdd);
+				checkKernelRun((
+					calcDynamicsOneThread<<<gridDim, blockDim>>>(
+						weightMatrixDevice.getDevPtr(),
+						currInputPtr,
+						currOutputPtr,
+						nNeurons
+					)
+				));
+			} else {
+				dim3 calcBlockDim(SHARED_BLOCK_DIM_X);
+				dim3 calcGridDim(nNeurons);
+				checkKernelRun((
+					calcDynamicsShared<<<calcGridDim, calcBlockDim>>>(
+						weightMatrixDevice.getDevPtr(),
+						currInputPtr,
+						currOutputPtr,
+						nNeurons
+					)
+				));
+			}
+			std::swap(currInputPtr, currOutputPtr);
 		}
 
 		DeviceScopedPtr1D<int> hits(nNeurons * nNeurons);
@@ -250,26 +305,37 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 			}
 
 			// computing
-			{
-				dim3 calcBlockDim(128 / SIZE);
-				dim3 calcGridDim(divRoundUp(nNeurons, calcBlockDim.x * SIZE));
+			if (useSingleThreadPerNeuron) {
+				dim3 calcBlockDim(256);
+				dim3 calcGridDim(divRoundUp(nNeurons, calcBlockDim.x));
 				checkKernelRun((
-					calcDynamics<<<calcGridDim, calcBlockDim>>>(
+					calcDynamicsOneThread<<<calcGridDim, calcBlockDim>>>(
 						weightMatrixDevice.getDevPtr(),
-						ptrEven,
-						ptrOdd,
+						currInputPtr,
+						currOutputPtr,
+						nNeurons
+					)
+				));
+			} else {
+				dim3 calcBlockDim(SHARED_BLOCK_DIM_X);
+				dim3 calcGridDim(nNeurons);
+				checkKernelRun((
+					calcDynamicsShared<<<calcGridDim, calcBlockDim>>>(
+						weightMatrixDevice.getDevPtr(),
+						currInputPtr,
+						currOutputPtr,
 						nNeurons
 					)
 				));
 			}
-
+		
 			{
 				dim3 blockDim(128);
 				dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
 				checkKernelRun((
 					prepareToSynchronizationCheck<<<gridDim, blockDim>>>(
-						ptrEven,
-						ptrOdd,
+						currInputPtr,
+						currOutputPtr,
 						gt.getDevPtr() + nNeurons * currentStep,
 						bufferedValues.getDevPtr() + nNeurons * currentStep,
 						nNeurons
@@ -297,14 +363,13 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 			}
 
 			// copying neuron's outputs to host for sheets
-			if (output.getDevPtr() == ptrOdd) {
+			if (output.getDevPtr() == currOutputPtr) {
 				output.copyToHost(&sheet[i * nNeurons], nNeurons);
 			} else {
 				input.copyToHost(&sheet[i * nNeurons], nNeurons);
 			}
-
 			// swapping pointers of input/output
-			std::swap(ptrEven, ptrOdd);
+			std::swap(currInputPtr, currOutputPtr);
 		}
 
 		// for phase synchronization if needed to procede remained
@@ -327,7 +392,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 				
 				checkKernelRun((
 					fragmentaryAnalysis<<<fragGridDim, fragBlockDim>>>(
-						ptrEven,
+						currInputPtr,
 						currentStep,
 						hits.getDevPtr(),
 						nNeurons,
