@@ -69,14 +69,14 @@ void NeuralNetwork::calcWeightCoefs() {
 				const voronoi::Point &currPoint = points[j];
 				if (basePoint.distanceTo(currPoint) < averageDistance) {
 					double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-					double norm = pow(dist / totalAverage, 2);
+					double norm = pow(dist / totalAverage, 3.5);
 					double k = norm / (2.0);
 					float result = static_cast<float>(exp(-k));
 					weightMatrix[i * nPoints + j] = result;
 					weightMatrix[j * nPoints + i] = result;
 				} else {
 					double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-					double norm = pow(dist / totalAverage, 2);
+					double norm = pow(dist / totalAverage, 3.5);
 					double k = norm / (2.0);
 					float result = static_cast<float>(exp(-k));
 
@@ -109,11 +109,14 @@ NeuralNetwork::NeuralNetwork(const std::vector<voronoi::Point> &points, voronoi:
 	calcWeightCoefs();
 }
 
+#include "cpuimpl.h"
+
 void NeuralNetwork::process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS, bool useSimpleComputingMode) {
 	const int nIterations = 2000;
 	std::vector<float> sheet;
 	const int nNeurons = this->points.size();
 	DWORD startCudaTime = GetTickCount();
+
 	std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
 		nNeurons, 
 		this->weightMatrix,
@@ -124,6 +127,18 @@ void NeuralNetwork::process(const std::string &fileName, SyncType syncType, std:
 		fragmentaryEPS,
 		useSimpleComputingMode
 	);
+/*
+
+	std::vector<int> hits = processOscillatoryChaoticNetworkDynamicsCPU(
+		nNeurons, 
+		this->weightMatrix,
+		0,
+		nIterations,
+		syncType,
+		sheet,
+		fragmentaryEPS
+	);
+*/
 	check(sheet.size() == nIterations * nNeurons);
 	DWORD finishCudaTime = GetTickCount();
 	printf("time seconds for cuda calls = %5.3f\r\n", (finishCudaTime - startCudaTime) * 0.001f);

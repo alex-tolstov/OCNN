@@ -127,8 +127,8 @@
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
-				AdditionalOptions="-I&quot;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.0\\include&quot; /D_CRT_SECURE_NO_WARNINGS"
-				Optimization="2"
+				AdditionalOptions="-I&quot;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.0\\include&quot; /D_CRT_SECURE_NO_WARNINGS /openmp"
+				Optimization="3"
 				EnableIntrinsicFunctions="true"
 				RuntimeLibrary="0"
 				EnableFunctionLevelLinking="true"
@@ -146,6 +146,7 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
+				AdditionalOptions="/openmp"
 				AdditionalDependencies="cudart.lib"
 				AdditionalLibraryDirectories="&quot;$(CUDA_PATH_V5_0)\lib\$(PlatformName)&quot;"
 				GenerateDebugInformation="true"
@@ -194,6 +195,10 @@
 				>
 			</File>
 			<File
+				RelativePath=".\cpuimpl.cpp"
+				>
+			</File>
+			<File
 				RelativePath=".\EasyBMP.cpp"
 				>
 			</File>
@@ -225,6 +230,10 @@
 			>
 			<File
 				RelativePath=".\bmpworks.h"
+				>
+			</File>
+			<File
+				RelativePath=".\cpuimpl.h"
 				>
 			</File>
 			<File
