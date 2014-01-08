@@ -116,9 +116,9 @@ void NeuralNetwork::process(
 	SyncType syncType, 
 	std::vector<float> &successRates, 
 	float fragmentaryEPS, 
-	std::string singleThreadFlag
+	std::string singleThreadFlag,
+	const int nIterations
 ) {
-	const int nIterations = 2000;
 	std::vector<float> sheet;
 	const int nNeurons = this->points.size();
 	DWORD startCudaTime = GetTickCount();

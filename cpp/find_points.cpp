@@ -50,7 +50,7 @@ void ImageToPointsConverter::fillVector(std::vector<voronoi::Point> &result) {
 	for (int x = 0; x < width; x++) {
 		for (int y = 0; y < height; y++) {
 			if (!used[y * width + x] && isGoodColor(x, y)) {
-				result.push_back(voronoi::Point(x, y));
+				result.push_back(voronoi::Point(static_cast<float>(x), static_cast<float>(y)));
 			}
 		}
 	}

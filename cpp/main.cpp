@@ -179,6 +179,10 @@ int main() {
 			throw std::runtime_error("Wrong computing mode flag");
 		}
 		
+		std::cout << "type number of algorithm's iteration to run" << std::endl;
+
+		int nIterations;
+		std::cin >> nIterations;
 
 		const std::string REPORT_DIR = WORKING_DIR + "report\\";
 		_mkdir(REPORT_DIR.c_str());
@@ -199,7 +203,7 @@ int main() {
 						rates.push_back(successRateLocal);
 					}
 					NeuralNetwork network(points, diagram);
-					network.process("result_fragm.bmp", syncType, rates, fragmentaryEPS, singleThreadFlag);
+					network.process("result_fragm.bmp", syncType, rates, fragmentaryEPS, singleThreadFlag, nIterations);
 				}
 			} else {
 				std::vector <float> rates;
@@ -209,7 +213,7 @@ int main() {
 				}
 				
 				NeuralNetwork network(points, diagram);
-				network.process("result_phase.bmp", syncType, rates, 0, singleThreadFlag);
+				network.process("result_phase.bmp", syncType, rates, 0, singleThreadFlag, nIterations);
 			}
 
 		}

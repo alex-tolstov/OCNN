@@ -20,10 +20,10 @@ inline float logistic(float signal) {
 
 
 void calcDynamicsOneThread(
-	const float *weightMatrix,
+	const std::vector<float> &weightMatrix,
 	float *neuronInput,
 	float *output,
-	int nNeurons
+	const int nNeurons
 ) {
 	DWORD startTick = GetTickCount();
 	#pragma omp parallel for
@@ -152,7 +152,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 
 		for (int i = 0; i < startObservationTime; i++) {
 			cpu::calcDynamicsOneThread(
-				&weightMatrixHost[0],
+				weightMatrixHost,
 				currInputPtr,
 				currOutputPtr,
 				nNeurons
@@ -185,7 +185,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 
 			// computing
 			cpu::calcDynamicsOneThread(
-				&weightMatrixHost[0],
+				weightMatrixHost,
 				currInputPtr,
 				currOutputPtr,
 				nNeurons

@@ -32,7 +32,8 @@ public:
 		SyncType syncType, 
 		std::vector<float> &successRates, 
 		float fragmentaryEPS, 
-		std::string singleThreadFlag
+		std::string singleThreadFlag,
+		const int nIterations
 	);
 };
 
