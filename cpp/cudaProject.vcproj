@@ -146,7 +146,6 @@
 			/>
 			<Tool
 				Name="VCLinkerTool"
-				AdditionalOptions="/openmp"
 				AdditionalDependencies="cudart.lib"
 				AdditionalLibraryDirectories="&quot;$(CUDA_PATH_V5_0)\lib\$(PlatformName)&quot;"
 				GenerateDebugInformation="true"

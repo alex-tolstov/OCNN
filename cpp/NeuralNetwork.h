@@ -27,7 +27,13 @@ public:
 
 	NeuralNetwork(const std::vector<voronoi::Point> &points, voronoi::NeighborsListContainer &diagram);
 	
-	void process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS, bool useSimpleComputingMode);
+	void process(
+		const std::string &fileName, 
+		SyncType syncType, 
+		std::vector<float> &successRates, 
+		float fragmentaryEPS, 
+		std::string singleThreadFlag
+	);
 };
 
 #endif // NEURALNETWORK_H_

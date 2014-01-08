@@ -160,16 +160,21 @@ int main() {
 			throw std::runtime_error("Wrong synchronization type name: " + syncTypeString);
 		}
 
-		std::cout << "TEST MODE: type 1 to use single thread computing, for slow cards " << std::endl << "type 2 to use block computing, for speedy cards" << std::endl;
+		std::cout << "TEST MODE: type 1 to use single thread computing, for slow cards " 
+				  << std::endl 
+				  << "type 2 to use block computing, for speedy cards" 
+				  << std::endl
+				  << "type 3 to use cpu (with openmp) computing, optimized by MS VC++"
+				  << std::endl;
+
 		std::string singleThreadFlag;
 		std::cin >> singleThreadFlag;
-		bool useSimpleComputingMode = false;
 		if (singleThreadFlag == "1") {
 			std::cout << "using single thread computing mode" << std::endl;
-			useSimpleComputingMode = true;
 		} else if (singleThreadFlag == "2") {
 			std::cout << "using block computing mode" << std::endl;
-			useSimpleComputingMode = false;
+		} else if (singleThreadFlag == "3") {
+			std::cout << "using cpu computing mode" << std::endl;
 		} else {
 			throw std::runtime_error("Wrong computing mode flag");
 		}
@@ -194,7 +199,7 @@ int main() {
 						rates.push_back(successRateLocal);
 					}
 					NeuralNetwork network(points, diagram);
-					network.process("result_fragm.bmp", syncType, rates, fragmentaryEPS, useSimpleComputingMode);
+					network.process("result_fragm.bmp", syncType, rates, fragmentaryEPS, singleThreadFlag);
 				}
 			} else {
 				std::vector <float> rates;
@@ -204,7 +209,7 @@ int main() {
 				}
 				
 				NeuralNetwork network(points, diagram);
-				network.process("result_phase.bmp", syncType, rates, 0, useSimpleComputingMode);
+				network.process("result_phase.bmp", syncType, rates, 0, singleThreadFlag);
 			}
 
 		}

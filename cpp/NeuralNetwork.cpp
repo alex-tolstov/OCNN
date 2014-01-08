@@ -111,37 +111,45 @@ NeuralNetwork::NeuralNetwork(const std::vector<voronoi::Point> &points, voronoi:
 
 #include "cpuimpl.h"
 
-void NeuralNetwork::process(const std::string &fileName, SyncType syncType, std::vector<float> &successRates, float fragmentaryEPS, bool useSimpleComputingMode) {
+void NeuralNetwork::process(
+	const std::string &fileName, 
+	SyncType syncType, 
+	std::vector<float> &successRates, 
+	float fragmentaryEPS, 
+	std::string singleThreadFlag
+) {
 	const int nIterations = 2000;
 	std::vector<float> sheet;
 	const int nNeurons = this->points.size();
 	DWORD startCudaTime = GetTickCount();
 
-	std::vector<int> hits = ::processOscillatoryChaoticNetworkDynamics(
-		nNeurons, 
-		this->weightMatrix,
-		0,
-		nIterations,
-		syncType,
-		sheet,
-		fragmentaryEPS,
-		useSimpleComputingMode
-	);
-/*
-
-	std::vector<int> hits = processOscillatoryChaoticNetworkDynamicsCPU(
-		nNeurons, 
-		this->weightMatrix,
-		0,
-		nIterations,
-		syncType,
-		sheet,
-		fragmentaryEPS
-	);
-*/
+	std::vector<int> hits;
+	if (singleThreadFlag != "3") {
+		check(singleThreadFlag == "2" || singleThreadFlag == "1");
+		hits = ::processOscillatoryChaoticNetworkDynamics(
+			nNeurons, 
+			this->weightMatrix,
+			0,
+			nIterations,
+			syncType,
+			sheet,
+			fragmentaryEPS,
+			singleThreadFlag == "1"
+		);
+	} else {
+		hits = processOscillatoryChaoticNetworkDynamicsCPU(
+			nNeurons, 
+			this->weightMatrix,
+			0,
+			nIterations,
+			syncType,
+			sheet,
+			fragmentaryEPS
+		);
+	}
 	check(sheet.size() == nIterations * nNeurons);
 	DWORD finishCudaTime = GetTickCount();
-	printf("time seconds for cuda calls = %5.3f\r\n", (finishCudaTime - startCudaTime) * 0.001f);
+	printf("time seconds for neural network calculation and analysis = %5.3f\r\n", (finishCudaTime - startCudaTime) * 0.001f);
 
 	const std::string REPORT_DIR = WORKING_DIR + "report\\";
 	BMP bitmapSheet;
