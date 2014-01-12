@@ -36,11 +36,6 @@
 			/>
 			<Tool
 				Name="Cudart Build Rule"
-				GPUDebugInfo="true"
-				Arch1="20"
-				Arch2="0"
-				TargetMachinePlatform="0"
-				MaxRegCount="20"
 			/>
 			<Tool
 				Name="VCXMLDataGeneratorTool"
@@ -115,11 +110,6 @@
 			/>
 			<Tool
 				Name="Cudart Build Rule"
-				GPUDebugInfo="true"
-				Arch1="20"
-				Arch2="0"
-				TargetMachinePlatform="0"
-				MaxRegCount="20"
 			/>
 			<Tool
 				Name="VCXMLDataGeneratorTool"
@@ -192,43 +182,55 @@
 				Name="VCPreBuildEventTool"
 			/>
 			<Tool
-				Name="VCCustomBuildTool"
-			/>
-			<Tool
-				Name="Cudart Build Rule"
-				Arch1="20"
-				Arch2="0"
-			/>
-			<Tool
-				Name="VCXMLDataGeneratorTool"
-			/>
-			<Tool
 				Name="VCWebServiceProxyGeneratorTool"
+				ExecutionBucket="2"
 			/>
 			<Tool
 				Name="VCMIDLTool"
+				ExecutionBucket="3"
 			/>
 			<Tool
 				Name="VCCLCompilerTool"
+				ExecutionBucket="4"
 				AdditionalOptions="-I&quot;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v5.0\\include&quot; /D_CRT_SECURE_NO_WARNINGS /openmp"
-				Optimization="3"
+				Optimization="2"
 				EnableIntrinsicFunctions="true"
+				AdditionalIncludeDirectories=""
+				PreprocessorDefinitions=""
 				RuntimeLibrary="0"
 				EnableFunctionLevelLinking="true"
 				WarningLevel="3"
 				DebugInformationFormat="3"
 			/>
 			<Tool
+				Name="VCXMLDataGeneratorTool"
+			/>
+			<Tool
+				Name="VCCustomBuildTool"
+				ExecutionBucket="5"
+			/>
+			<Tool
+				Name="Cudart Build Rule"
+				ExecutionBucket="6"
+				Arch1="20"
+				Arch2="0"
+				MaxRegCount="20"
+			/>
+			<Tool
 				Name="VCManagedResourceCompilerTool"
+				ExecutionBucket="7"
 			/>
 			<Tool
 				Name="VCResourceCompilerTool"
+				ExecutionBucket="8"
 			/>
 			<Tool
 				Name="VCPreLinkEventTool"
+				ExecutionBucket="9"
 			/>
 			<Tool
 				Name="VCLinkerTool"
+				ExecutionBucket="10"
 				AdditionalDependencies="cudart.lib"
 				AdditionalLibraryDirectories="&quot;$(CUDA_PATH_V5_0)\lib\$(PlatformName)&quot;"
 				GenerateDebugInformation="true"
@@ -238,25 +240,31 @@
 			/>
 			<Tool
 				Name="VCALinkTool"
+				ExecutionBucket="11"
 			/>
 			<Tool
 				Name="VCManifestTool"
+				ExecutionBucket="12"
 			/>
 			<Tool
 				Name="VCXDCMakeTool"
+				ExecutionBucket="13"
 			/>
 			<Tool
 				Name="VCBscMakeTool"
+				ExecutionBucket="14"
 			/>
 			<Tool
 				Name="VCFxCopTool"
-			/>
-			<Tool
-				Name="VCAppVerifierTool"
+				ExecutionBucket="15"
 			/>
 			<Tool
 				Name="VCPostBuildEventTool"
 				CommandLine="echo copy &quot;$(CUDA_PATH_V5_0)\bin\cudart*.dll&quot; &quot;$(OutDir)&quot;&#x0D;&#x0A;copy &quot;$(CUDA_PATH_V5_0)\bin\cudart*.dll&quot; &quot;$(OutDir)&quot;&#x0D;&#x0A;"
+				ExecutionBucket="16"
+			/>
+			<Tool
+				Name="VCAppVerifierTool"
 			/>
 		</Configuration>
 		<Configuration
@@ -275,8 +283,6 @@
 			/>
 			<Tool
 				Name="Cudart Build Rule"
-				Arch1="20"
-				Arch2="0"
 			/>
 			<Tool
 				Name="VCXMLDataGeneratorTool"
@@ -384,6 +390,10 @@
 				RelativePath=".\TestingFortune.cpp"
 				>
 			</File>
+			<File
+				RelativePath=".\timer.cpp"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Header Files"
@@ -422,6 +432,10 @@
 				RelativePath=".\SimpleMath.h"
 				>
 			</File>
+			<File
+				RelativePath=".\timer.h"
+				>
+			</File>
 		</Filter>
 		<Filter
 			Name="Resource Files"
@@ -429,10 +443,6 @@
 			UniqueIdentifier="{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}"
 			>
 		</Filter>
-		<File
-			RelativePath=".\ClassDiagram1.cd"
-			>
-		</File>
 	</Files>
 	<Globals>
 	</Globals>

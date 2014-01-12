@@ -8,7 +8,8 @@
 
 #include "SimpleMath.h"
 
-#include <windows.h>
+
+#include "timer.h"
 
 #include <omp.h>
 
@@ -21,16 +22,17 @@ inline float logistic(float signal) {
 
 void calcDynamicsOneThread(
 	const std::vector<float> &weightMatrix,
-	float *neuronInput,
+	const float *neuronInput,
 	float *output,
 	const int nNeurons
 ) {
 	DWORD startTick = GetTickCount();
+	
 	#pragma omp parallel for
 	for (int neuronIdx = 0; neuronIdx < nNeurons; neuronIdx++) {
 		float sum = 0.0f;
 		float norm = 0.0f;
-		
+	
 		for (int other = 0; other < nNeurons; other++) {
 			float prev = neuronInput[other];
 			float w = weightMatrix[neuronIdx * nNeurons + other];
@@ -39,36 +41,45 @@ void calcDynamicsOneThread(
 		}
 		output[neuronIdx] = logistic((1.0f / norm) * sum);
 	}
+	
 	DWORD finishTick = GetTickCount();
-	//printf("calc dynamics time seconds = %.3f\r\n", (finishTick - startTick) * 0.001f);
+	printf("calc1 dynamics time seconds = %.3f\r\n", (finishTick - startTick) * 0.001f);
 }
+
 
 
 void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nNeurons) {
 	DWORD startTick = GetTickCount();
-	#pragma omp parallel for
-	for (int neuronIdxFirst = 0; neuronIdxFirst < nNeurons; neuronIdxFirst++) {
-		for (int neuronIdxSecond = 0; neuronIdxSecond < nNeurons; neuronIdxSecond++) {
-			int count = 0;
-			for (int step = 0; step < nSteps; step++) {
-				int first = currGT[step * nNeurons + neuronIdxFirst];
-				int second = currGT[step * nNeurons + neuronIdxSecond];
+	
+	for (int step = 0; step < nSteps; step++) {
+		const int shift = step * nNeurons;
+		#pragma omp parallel for
+		for (int neuronIdxFirst = 0; neuronIdxFirst < nNeurons; neuronIdxFirst++) {
+			int first = currGT[shift + neuronIdxFirst];
+			for (int neuronIdxSecond = 0; neuronIdxSecond < nNeurons; neuronIdxSecond++) {
+				int second = currGT[shift + neuronIdxSecond];
 				if (first == second) {
-					count++;
+					hits[neuronIdxFirst * nNeurons + neuronIdxSecond]++;
 				}
 			}
-			hits[neuronIdxFirst * nNeurons + neuronIdxSecond] += count;
 		}
 	}
+	
 	DWORD finishTick = GetTickCount();
-//	printf("phase sync time seconds = %.3f\r\n", (finishTick - startTick) * 0.001f);
+	printf("phase sync time seconds = %.3f\r\n", (finishTick - startTick) * 0.001f);
 }
 
 
 /**
 Простейшая функция, для учета увеличения или уменьшения выхода нейрона а также буферизирования значений.
 */
-void prepareToSynchronizationCheck(float *prevOutput, float *currOutput, int *gt, float *bufferedValues, int nNeurons) {
+void prepareToSynchronizationCheck(
+	const float *prevOutput, 
+	const float *currOutput, 
+	int *gt, 
+	float *bufferedValues, 
+	const int nNeurons
+) {
 	for (int neuronIdx = 0; neuronIdx < nNeurons; neuronIdx++) {
 		bool value = currOutput[neuronIdx] > prevOutput[neuronIdx];
 		int result = 0;
@@ -124,6 +135,21 @@ void debugPrintArray(std::vector<float> &vals) {
 }
 
 } // namespace cpu
+/*
+std::vector<int> processOscillatoryChaoticNetworkDynamics(
+	int nNeurons,
+	const std::vector<float> &weightMatrixHost,
+	int startObservationTime,
+	int nIterations,
+	SyncType syncType,
+	std::vector<float> &sheet,
+	const float fragmentaryEPS,
+	bool v
+)
+{
+	return std::vector<int>(10);
+}
+*/
 
 std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 	int nNeurons,
@@ -143,10 +169,9 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 
 		std::vector<float> input(nNeurons);
 		std::vector<float> output(nNeurons);
-
+		
 		cpu::randomSetHost(input);
-		cpu::randomSetHost(output);
-
+		
 		float *currInputPtr = &input[0];
 		float *currOutputPtr = &output[0];
 
@@ -190,7 +215,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 				currOutputPtr,
 				nNeurons
 			);
-		
+			
 			cpu::prepareToSynchronizationCheck(
 				currInputPtr,
 				currOutputPtr,
@@ -220,7 +245,6 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 			
 			// swapping pointers of input/output
 			std::swap(currInputPtr, currOutputPtr);
-
 			DWORD finishIteration = GetTickCount();
 		//	printf("Iteration time = %.3f\r\n", (finishIteration - startIteration) * 0.001f);
 		}

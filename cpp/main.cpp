@@ -15,11 +15,13 @@
 #include "find_points.h"
 
 #define NOMINMAX
-#include <windows.h>
+
+#include "timer.h"
 
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
+		//freopen("C:/Users/Alex/Desktop/ocnn/cpp/Release/test", "rb", stdin);
 
 		std::cout << "[phase,p,P,1|fragmentary,f,F,2] [successRate:0..1]" << std::endl;
 
@@ -133,6 +135,7 @@ int main() {
 				int idx;
 				pointsStream >> idx >> x >> y;
 				points.push_back(Point(x * scale, y * scale));
+				points.push_back(Point(x * scale + 128, y * scale));
 			}
 	//		std::sort(points.begin(), points.end(), voronoi::PointComparatorX());
 			pointsStream.close();

@@ -2,8 +2,9 @@
 #include "bmpworks.h"
 #include "groups.h"
 
+
 #define NOMINMAX
-#include <windows.h>
+#include "timer.h"
 
 #include <iostream>
 #include <fstream>
@@ -63,7 +64,7 @@ void NeuralNetwork::calcWeightCoefs() {
 		const voronoi::Point &basePoint = points[i];
 		
 		if (adjancent.find(basePoint) != adjancent.end()) {
-			const std::set<voronoi::Point, voronoi::PointComparatorY> &currAdj = adjancent.find(basePoint)->second;
+			//const std::set<voronoi::Point, voronoi::PointComparatorY> &currAdj = adjancent.find(basePoint)->second;
 
 			for (int j = i + 1; j < nPoints; j++) {
 				const voronoi::Point &currPoint = points[j];
@@ -121,7 +122,7 @@ void NeuralNetwork::process(
 ) {
 	std::vector<float> sheet;
 	const int nNeurons = this->points.size();
-	DWORD startCudaTime = GetTickCount();
+	long long startCudaTime = GetTickCount();
 
 	std::vector<int> hits;
 	if (singleThreadFlag != "3") {
@@ -129,7 +130,7 @@ void NeuralNetwork::process(
 		hits = ::processOscillatoryChaoticNetworkDynamics(
 			nNeurons, 
 			this->weightMatrix,
-			0,
+			5,
 			nIterations,
 			syncType,
 			sheet,
@@ -140,7 +141,7 @@ void NeuralNetwork::process(
 		hits = processOscillatoryChaoticNetworkDynamicsCPU(
 			nNeurons, 
 			this->weightMatrix,
-			0,
+			5,
 			nIterations,
 			syncType,
 			sheet,
@@ -150,7 +151,6 @@ void NeuralNetwork::process(
 	check(sheet.size() == nIterations * nNeurons);
 	DWORD finishCudaTime = GetTickCount();
 	printf("time seconds for neural network calculation and analysis = %5.3f\r\n", (finishCudaTime - startCudaTime) * 0.001f);
-
 	const std::string REPORT_DIR = WORKING_DIR + "report\\";
 	BMP bitmapSheet;
 

@@ -53,13 +53,13 @@ __global__ void calcDynamicsOneThread(
 
 
 // ТОЛЬКО СТЕПЕНЬ ДВОЙКИ, А ТО ЦИКЛ НЕ СРАБОТАЕТ
-#define SHARED_BLOCK_DIM_X 256
+#define SHARED_BLOCK_DIM_X 512
 
 __global__ void calcDynamicsShared(
-	float *weightMatrix,
-	float *neuronInput,
+	const float *weightMatrix,
+	const float *neuronInput,
 	float *output,
-	int nNeurons
+	const int nNeurons
 ) {
 	int neuronIdx = blockIdx.x;
 
@@ -70,13 +70,17 @@ __global__ void calcDynamicsShared(
 	float sum = 0.0f;
 	float norm = 0.0f;
 
-	for (int i = 0; i < nNeurons; i += blockDim.x) {
-		int secondNeuron = i + threadIdx.x;
+	const float *wm = weightMatrix + neuronIdx * nNeurons;
+
+	int shift = threadIdx.x;
+	#pragma unroll
+	for (int i = 0; i < nNeurons; i += SHARED_BLOCK_DIM_X) {
+		int secondNeuron = i + shift;
 		if (secondNeuron < nNeurons) {
-			// все блоки читают этот neuronInput одновременно, оптимизация не требуется.
-			float prev = neuronInput[secondNeuron];
 			// читаем последовательно
-			float w = weightMatrix[neuronIdx * nNeurons + secondNeuron];
+			float prev = neuronInput[secondNeuron];
+			float w = wm[secondNeuron];
+
 			norm += w;
 			sum  += prev * w;
 		}
@@ -89,22 +93,79 @@ __global__ void calcDynamicsShared(
 	norms[threadIdx.x] = norm;
 
 	__syncthreads();
+ 
 
-	// NOTE SHARED_BLOCK_DIM_X обязан быть степенью 2.
-	for (int stride = SHARED_BLOCK_DIM_X / 2; stride >= 1; stride = stride / 2) {
-		if (threadIdx.x < stride && threadIdx.x + stride < SHARED_BLOCK_DIM_X) {
+	// SHARED_BLOCK_DIM_X обязан быть степенью 2.
+	for (int stride = SHARED_BLOCK_DIM_X >> 1; stride >= 1; stride = stride >> 1) {
+		if (threadIdx.x < stride) {
 			sums[threadIdx.x]  +=  sums[threadIdx.x + stride];
 			norms[threadIdx.x] += norms[threadIdx.x + stride];
 		}
 		__syncthreads();
 	}
 
-	__syncthreads();
-
 	if (threadIdx.x == 0) {
 		norm = norms[0];
 		sum = sums[0];
 		output[neuronIdx] = logistic((1.0f / norm) * sum);
+	}
+}
+
+#define DIVISOR 32
+
+__global__ void calcDynamicsShared4(
+	const float *weightMatrix,
+	const float *neuronInput,
+	float *output,
+	const int nNeurons
+) {
+	const int NEURON_ZONE = SHARED_BLOCK_DIM_X / DIVISOR;
+	const int INTRO_NEURON = threadIdx.x / NEURON_ZONE;
+	int neuronIdx = blockIdx.x * DIVISOR + INTRO_NEURON;
+
+	__shared__ float sums[DIVISOR][NEURON_ZONE+1];
+	__shared__ float norms[DIVISOR][NEURON_ZONE+1];
+
+	float sum = 0.0f;
+	float norm = 0.0f;
+
+	const float *wm = weightMatrix + neuronIdx * nNeurons;
+
+	int SHIFT = threadIdx.x % NEURON_ZONE;
+	
+	for (int i = 0; i < nNeurons; i += NEURON_ZONE) {
+		int secondNeuron = i + SHIFT;
+		if (secondNeuron < nNeurons) {
+			// читаем последовательно
+			float prev = neuronInput[secondNeuron];
+			float w = wm[secondNeuron];
+
+			norm += w;
+			sum  += prev * w;
+		}
+	}
+
+	sums[INTRO_NEURON][SHIFT] = sum;
+	norms[INTRO_NEURON][SHIFT] = norm;
+
+	__syncthreads();
+ 
+	// SHARED_BLOCK_DIM_X обязан быть степенью 2.
+	for (int stride = NEURON_ZONE >> 1; stride >= 1; stride = stride >> 1) {
+		if (SHIFT < stride) {
+			sums[INTRO_NEURON][SHIFT]  +=  sums[INTRO_NEURON][SHIFT + stride];
+			norms[INTRO_NEURON][SHIFT] += norms[INTRO_NEURON][SHIFT + stride];
+		}
+		__syncthreads();
+	}
+
+	if (threadIdx.x < DIVISOR) {
+		neuronIdx = threadIdx.x;
+		if (neuronIdx < nNeurons) {
+			norm = norms[neuronIdx][0];
+			sum = sums[neuronIdx][0];
+			output[neuronIdx] = logistic((1.0f / norm) * sum);
+		}
 	}
 }
 
@@ -179,12 +240,14 @@ __global__ void fragmentaryAnalysis(float *currOutput, int nSteps, int *hits, in
 	hits[neuronIdxFirst * nNeurons + neuronIdxSecond] += count;
 }
 
-__global__ void zeroInts(int *ar, int count) {
-	int idx = threadIdx.x + blockIdx.x * blockDim.x;
-	if (idx >= count) {
+__global__ void zeroInts(int *ar, int sizeX, int sizeY) {
+	int x = threadIdx.x + blockIdx.x * blockDim.x;
+	int y = threadIdx.y + blockIdx.y * blockDim.y;
+
+	if (x >= sizeX || y >= sizeY) {
 		return;
 	}
-	ar[idx] = 0;
+	ar[y * sizeX + x] = 0;
 }
 
 inline int divRoundUp(int a, int b) {
@@ -216,7 +279,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	bool useSingleThreadPerNeuron
 ) {
 	BEGIN_FUNCTION {
-		check(nIterations > 0);
+		//check(nIterations > 0);
 		check(nNeurons > 0);
 		check(startObservationTime >= 0);
 
@@ -250,10 +313,22 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 					)
 				));
 			} else {
+/*
 				dim3 calcBlockDim(SHARED_BLOCK_DIM_X);
 				dim3 calcGridDim(nNeurons);
 				checkKernelRun((
 					calcDynamicsShared<<<calcGridDim, calcBlockDim>>>(
+						weightMatrixDevice.getDevPtr(),
+						currInputPtr,
+						currOutputPtr,
+						nNeurons
+					)
+				));
+*/
+				dim3 calcBlockDim4(SHARED_BLOCK_DIM_X);
+				dim3 calcGridDim4(divRoundUp(nNeurons, DIVISOR));
+				checkKernelRun((
+					calcDynamicsShared4<<<calcGridDim4, calcBlockDim4>>>(
 						weightMatrixDevice.getDevPtr(),
 						currInputPtr,
 						currOutputPtr,
@@ -266,12 +341,13 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 
 		DeviceScopedPtr1D<int> hits(nNeurons * nNeurons);
 		{
-			dim3 blockDimFill(512);
-			dim3 gridDimFill(divRoundUp(nNeurons * nNeurons, blockDimFill.x));
+			dim3 blockDimFill(32, 8);
+			dim3 gridDimFill(divRoundUp(nNeurons, blockDimFill.x), divRoundUp(nNeurons, blockDimFill.y));
 			checkKernelRun((
 				zeroInts<<<gridDimFill, blockDimFill>>>(
 					hits.getDevPtr(),
-					nNeurons * nNeurons
+					nNeurons,
+					nNeurons
 				)
 			));
 		}
@@ -279,7 +355,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 		DeviceScopedPtr1D<int> currentHits(nNeurons);
 		std::vector<int> currentHitsHost(nNeurons);
 
-		const int N_STEPS = 64;	
+		const int N_STEPS = 64;
 		DeviceScopedPtr1D<int> gt(nNeurons * N_STEPS);
 		DeviceScopedPtr1D<float> bufferedValues(nNeurons * N_STEPS);
 
@@ -301,6 +377,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 						fragmentaryEPS
 					)
 				));
+				
 				currentStep = 0;
 			}
 
@@ -317,10 +394,22 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 					)
 				));
 			} else {
+/*
 				dim3 calcBlockDim(SHARED_BLOCK_DIM_X);
 				dim3 calcGridDim(nNeurons);
 				checkKernelRun((
 					calcDynamicsShared<<<calcGridDim, calcBlockDim>>>(
+						weightMatrixDevice.getDevPtr(),
+						currInputPtr,
+						currOutputPtr,
+						nNeurons
+					)
+				));
+*/
+				dim3 calcBlockDim4(SHARED_BLOCK_DIM_X);
+				dim3 calcGridDim4(divRoundUp(nNeurons, DIVISOR));
+				checkKernelRun((
+					calcDynamicsShared4<<<calcGridDim4, calcBlockDim4>>>(
 						weightMatrixDevice.getDevPtr(),
 						currInputPtr,
 						currOutputPtr,
