@@ -21,21 +21,22 @@
 int main() {
 	try {
 		checkCudaCall(cudaSetDevice(0));
-		//freopen("C:/Users/Alex/Desktop/ocnn/cpp/Release/test", "rb", stdin);
+		//freopen("C:/voronoi/test", "rb", stdin);
 
-		std::cout << "[phase,p,P,1|fragmentary,f,F,2] [successRate:0..1]" << std::endl;
+		std::cout << "[phase,p,P,1|fragmentary,f,F,2] " << std::endl;
 
-		std::string syncTypeString;
-		std::cin >> syncTypeString;
-		float successRate = 0.f;
-		std::cin >> successRate;
+		std::string syncTypeString = "1";
+		std::cin >> syncTypeString; 
+		
+		//float successRate = 0.f;
+		//std::cin >> successRate;
 
 		std::cout << "To read from " << INPUT_FILE_NAME << ", type 1" << std::endl;
 		std::cout << "To read points from file, type 2" << std::endl;
 		std::cout << "To use generator of random points in [-100, 100] interval, type 3" << std::endl;
 		std::cout << "To read points from modified FCPS base, type 4" << std::endl;
 		
-		std::string type;
+		std::string type="3";
 		std::cin >> type;
 
 		using voronoi::Point;
@@ -135,9 +136,7 @@ int main() {
 				int idx;
 				pointsStream >> idx >> x >> y;
 				points.push_back(Point(x * scale, y * scale));
-				points.push_back(Point(x * scale + 128, y * scale));
 			}
-	//		std::sort(points.begin(), points.end(), voronoi::PointComparatorX());
 			pointsStream.close();
 		} else {
 			std::cout << "Unknown token = " << type << ", exiting.." << std::endl;
@@ -170,7 +169,7 @@ int main() {
 				  << "type 3 to use cpu (with openmp) computing, optimized by MS VC++"
 				  << std::endl;
 
-		std::string singleThreadFlag;
+		std::string singleThreadFlag = "2";
 		std::cin >> singleThreadFlag;
 		if (singleThreadFlag == "1") {
 			std::cout << "using single thread computing mode" << std::endl;
@@ -184,7 +183,7 @@ int main() {
 		
 		std::cout << "type number of algorithm's iteration to run" << std::endl;
 
-		int nIterations;
+		int nIterations = 1000;
 		std::cin >> nIterations;
 
 		const std::string REPORT_DIR = WORKING_DIR + "report\\";

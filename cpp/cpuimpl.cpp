@@ -26,8 +26,6 @@ void calcDynamicsOneThread(
 	float *output,
 	const int nNeurons
 ) {
-	DWORD startTick = GetTickCount();
-	
 	#pragma omp parallel for
 	for (int neuronIdx = 0; neuronIdx < nNeurons; neuronIdx++) {
 		float sum = 0.0f;
@@ -41,16 +39,11 @@ void calcDynamicsOneThread(
 		}
 		output[neuronIdx] = logistic((1.0f / norm) * sum);
 	}
-	
-	DWORD finishTick = GetTickCount();
-	printf("calc1 dynamics time seconds = %.3f\r\n", (finishTick - startTick) * 0.001f);
 }
 
 
 
 void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nNeurons) {
-	DWORD startTick = GetTickCount();
-	
 	for (int step = 0; step < nSteps; step++) {
 		const int shift = step * nNeurons;
 		#pragma omp parallel for
@@ -64,9 +57,6 @@ void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nNeurons) {
 			}
 		}
 	}
-	
-	DWORD finishTick = GetTickCount();
-	printf("phase sync time seconds = %.3f\r\n", (finishTick - startTick) * 0.001f);
 }
 
 
@@ -149,6 +139,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 {
 	return std::vector<int>(10);
 }
+
 */
 
 std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(

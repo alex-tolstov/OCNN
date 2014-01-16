@@ -40,24 +40,9 @@ void NeuralNetwork::createVoronoiDiagram(voronoi::NeighborsListContainer &diagra
 void NeuralNetwork::calcWeightCoefs() {
 	int nPoints = static_cast<int>(points.size());
 	weightMatrix.resize(nPoints * nPoints, 0.0f);
-	double sumDistance = 0.0;
-	std::vector<float> distances(nPoints * nPoints);
-
-	for (int i = 0; i < nPoints; i++) {
-		for (int j = 0; j < nPoints; j++) {
-			float currDist = points[i].distanceTo(points[j]);
-			distances[i * nPoints + j] = currDist;
-			sumDistance += currDist;
-		}
-	}
-	std::sort(distances.begin(), distances.end());
 	
-	float averageDistance = static_cast<float>(sumDistance / (nPoints * nPoints * 1.0));
-	averageDistance = distances[distances.size() / 2]; // mediana
+	float averageDistance = 0.4f;
 	
-	BMP weightCoefsBitmap;
-	weightCoefsBitmap.SetSize(nPoints, nPoints);
-
 	float minCoef = 10e5f;
 	float maxCoef = -10e5f;
 	for (int i = 0; i < nPoints; i++) {
@@ -70,14 +55,14 @@ void NeuralNetwork::calcWeightCoefs() {
 				const voronoi::Point &currPoint = points[j];
 				if (basePoint.distanceTo(currPoint) < averageDistance) {
 					double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-					double norm = pow(dist / totalAverage, 3.5);
+					double norm = pow(dist / totalAverage, 2);
 					double k = norm / (2.0);
 					float result = static_cast<float>(exp(-k));
 					weightMatrix[i * nPoints + j] = result;
 					weightMatrix[j * nPoints + i] = result;
 				} else {
 					double dist = sqrt(points[i].squaredDistanceTo(points[j]));
-					double norm = pow(dist / totalAverage, 3.5);
+					double norm = pow(dist / totalAverage, 2);
 					double k = norm / (2.0);
 					float result = static_cast<float>(exp(-k));
 
@@ -91,15 +76,20 @@ void NeuralNetwork::calcWeightCoefs() {
 		}
 	}
 
-	for (int i = 0; i < nPoints; i++) {
-		for (int j = 0; j < nPoints; j++) {
-			float value = weightMatrix[i * nPoints + j];
-			int repr = static_cast<int>(255 * (1.f - (value - minCoef) / (maxCoef - minCoef)));
-			setPixelValue(weightCoefsBitmap, i, j, repr, repr, repr);
+	if (false) {
+		BMP weightCoefsBitmap;
+		weightCoefsBitmap.SetSize(nPoints, nPoints);
+
+		for (int i = 0; i < nPoints; i++) {
+			for (int j = 0; j < nPoints; j++) {
+				float value = weightMatrix[i * nPoints + j];
+				int repr = static_cast<int>(255 * (1.f - (value - minCoef) / (maxCoef - minCoef)));
+				setPixelValue(weightCoefsBitmap, i, j, repr, repr, repr);
+			}
 		}
+		std::cout << "max coef = " << maxCoef << ", minCoef = " << minCoef << std::endl;
+		weightCoefsBitmap.WriteToFile(std::string(WORKING_DIR + "report/coefsMatrix.bmp").c_str());
 	}
-	std::cout << "max coef = " << maxCoef << ", minCoef = " << minCoef << std::endl;
-	weightCoefsBitmap.WriteToFile(std::string(WORKING_DIR + "report/coefsMatrix.bmp").c_str());
 }
 
 
@@ -121,16 +111,18 @@ void NeuralNetwork::process(
 	const int nIterations
 ) {
 	std::vector<float> sheet;
-	const int nNeurons = this->points.size();
-	long long startCudaTime = GetTickCount();
+	const int nNeurons = static_cast<int>(this->points.size());
+	TimerMillisPrecision runTimer;
+	runTimer.start();
 
 	std::vector<int> hits;
+	const int startObservationTime = 0;
 	if (singleThreadFlag != "3") {
 		check(singleThreadFlag == "2" || singleThreadFlag == "1");
 		hits = ::processOscillatoryChaoticNetworkDynamics(
 			nNeurons, 
 			this->weightMatrix,
-			5,
+			startObservationTime,
 			nIterations,
 			syncType,
 			sheet,
@@ -141,7 +133,7 @@ void NeuralNetwork::process(
 		hits = processOscillatoryChaoticNetworkDynamicsCPU(
 			nNeurons, 
 			this->weightMatrix,
-			5,
+			startObservationTime,
 			nIterations,
 			syncType,
 			sheet,
@@ -149,8 +141,10 @@ void NeuralNetwork::process(
 		);
 	}
 	check(sheet.size() == nIterations * nNeurons);
-	DWORD finishCudaTime = GetTickCount();
-	printf("time seconds for neural network calculation and analysis = %5.3f\r\n", (finishCudaTime - startCudaTime) * 0.001f);
+	printf("time seconds for neural network calculation and analysis = %5.3f\r\n", runTimer.get_elapsed_time_ms() * 0.001f);
+	
+	TimerMillisPrecision sheetCreateTimer;
+	sheetCreateTimer.start();
 	const std::string REPORT_DIR = WORKING_DIR + "report\\";
 	BMP bitmapSheet;
 
@@ -180,15 +174,16 @@ void NeuralNetwork::process(
 			setPixelValue(bitmapSheet, iter, neuron, red, green, blue);
 		}
 	}
-	DWORD preparedSheetTime = GetTickCount();
-	printf("time seconds for preparing sheet = %5.3f\r\n", (preparedSheetTime - finishCudaTime) * 0.001f);
 	
 	bitmapSheet.WriteToFile(std::string(REPORT_DIR + "sheet.bmp").c_str());
 	DWORD savedSheetTime = GetTickCount();
-	printf("time seconds for saving sheet to disk = %5.3f\r\n", (savedSheetTime - preparedSheetTime) * 0.001f);
+	printf("time seconds for sheet creation and saving sheet to disk = %5.3f\r\n", sheetCreateTimer.get_elapsed_time_ms() * 0.001f);
+	
+	TimerMillisPrecision runAnalysis;
+	runAnalysis.start();
 	for (int sr = 0; sr < static_cast<int>(successRates.size()); sr++) {
 
-		std::vector<Group> groups = ::divideOnGroups(this->points.size(), nIterations, successRates[sr], hits);
+		std::vector<Group> groups = ::divideOnGroups(static_cast<int>(this->points.size()), nIterations, successRates[sr], hits);
 		std::sort(groups.begin(), groups.end(), GroupComparator());
 		BMP bitmap;
 		bitmap.SetSize(512, 512);
@@ -251,5 +246,5 @@ void NeuralNetwork::process(
 		bitmap.WriteToFile(ss.str().c_str());
 	}
 	DWORD savedResultsTime = GetTickCount();
-	printf("time seconds for saving results to disk = %5.3f\r\n", (savedResultsTime - savedSheetTime) * 0.001f);
+	printf("time seconds for saving results to disk = %5.3f\r\n", runAnalysis.get_elapsed_time_ms() * 0.001f);
 }

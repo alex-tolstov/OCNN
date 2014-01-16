@@ -214,7 +214,7 @@
 				ExecutionBucket="6"
 				Arch1="20"
 				Arch2="0"
-				MaxRegCount="20"
+				MaxRegCount="28"
 			/>
 			<Tool
 				Name="VCManagedResourceCompilerTool"
@@ -283,6 +283,10 @@
 			/>
 			<Tool
 				Name="Cudart Build Rule"
+				Arch1="20"
+				Arch2="0"
+				TargetMachinePlatform="1"
+				MaxRegCount="0"
 			/>
 			<Tool
 				Name="VCXMLDataGeneratorTool"
