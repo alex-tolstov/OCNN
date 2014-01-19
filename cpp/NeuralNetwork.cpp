@@ -76,20 +76,18 @@ void NeuralNetwork::calcWeightCoefs() {
 		}
 	}
 
-	if (false) {
-		BMP weightCoefsBitmap;
-		weightCoefsBitmap.SetSize(nPoints, nPoints);
+	BMP weightCoefsBitmap;
+	weightCoefsBitmap.SetSize(nPoints, nPoints);
 
-		for (int i = 0; i < nPoints; i++) {
-			for (int j = 0; j < nPoints; j++) {
-				float value = weightMatrix[i * nPoints + j];
-				int repr = static_cast<int>(255 * (1.f - (value - minCoef) / (maxCoef - minCoef)));
-				setPixelValue(weightCoefsBitmap, i, j, repr, repr, repr);
-			}
+	for (int i = 0; i < nPoints; i++) {
+		for (int j = 0; j < nPoints; j++) {
+			float value = weightMatrix[i * nPoints + j];
+			int repr = static_cast<int>(255 * (1.f - (value - minCoef) / (maxCoef - minCoef)));
+			setPixelValue(weightCoefsBitmap, i, j, repr, repr, repr);
 		}
-		std::cout << "max coef = " << maxCoef << ", minCoef = " << minCoef << std::endl;
-		weightCoefsBitmap.WriteToFile(std::string(WORKING_DIR + "report/coefsMatrix.bmp").c_str());
 	}
+	std::cout << "max coef = " << maxCoef << ", minCoef = " << minCoef << std::endl;
+	weightCoefsBitmap.WriteToFile(std::string(WORKING_DIR + "report/coefsMatrix.bmp").c_str());
 }
 
 

@@ -36,10 +36,11 @@ std::vector<Group> divideOnGroups(int nNeurons, int nIterations, float successRa
 	for (int i = 0; i < nNeurons; i++) {
 		groups.push_back(Group(i));
 	}
+	int globalPitchElements = hitsHost.size() / nNeurons;
 
 	for (int i = 0; i < nNeurons; i++) {
 		for (int j = 0; j < nNeurons; j++) {
-			if (hitsHost[i * nNeurons + j] > successRate * nIterations) {
+			if (hitsHost[i * globalPitchElements + j] > successRate * nIterations) {
 				if (groups[i].host != groups[j].host) {
 					int host1 = groups[i].host;
 					int host2 = groups[j].host;

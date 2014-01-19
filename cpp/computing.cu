@@ -154,8 +154,8 @@ __global__ void calcDynamicsShared4Shared(
 // Запускать желательно с блоком 32x16, но вероятно потянет и 32x8, и 32x32.
 // Грид (nNeurons + 31 / 32, 1)
 
-#define FM_X 32
-#define FM_Y 16
+#define FM_X 64
+#define FM_Y 8
 
 __global__ void calcDynamicsFm1(
    float *weightMatrix,
@@ -314,6 +314,106 @@ void debugPrintArray(std::vector<float> &vals) {
 	printf("\r\n");
 }
 
+namespace cuda_impl {
+
+void runYThreads(
+	DeviceScopedPtr2D<float> &weightMatrixDevice,
+	float *currInputPtr,
+	float *currOutputPtr,
+	int nNeurons
+) {
+	dim3 blockDim(FM_X, FM_Y);
+	dim3 gridDim(divRoundUp(nNeurons, blockDim.x), 1);
+	checkKernelRun((
+		calcDynamicsFm1<<<gridDim, blockDim>>>(
+			weightMatrixDevice.getDevPtr(),
+			weightMatrixDevice.getPitchElements(),
+			currInputPtr,
+			currOutputPtr,
+			nNeurons
+		)
+	));
+}
+
+void runXThreads(
+	DeviceScopedPtr2D<float> &weightMatrixDevice,
+	float *currInputPtr,
+	float *currOutputPtr,
+	int nNeurons
+) {
+	dim3 blockDim(NEURON_ZONE, N_OUTPUTS);
+	dim3 gridDim(divRoundUp(nNeurons, blockDim.y), 1);
+	checkKernelRun((
+		calcDynamicsShared4Shared<<<gridDim, blockDim>>>(
+			weightMatrixDevice.getDevPtr(),
+			weightMatrixDevice.getPitchElements(),
+			currInputPtr,
+			currOutputPtr,
+			nNeurons
+		)
+	));
+}
+
+void runThreadPerNeuron(
+	DeviceScopedPtr2D<float> &weightMatrixDevice,
+	float *currInputPtr,
+	float *currOutputPtr,
+	int nNeurons
+) {
+	dim3 blockDim(256);
+	dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
+
+	checkKernelRun((
+		calcDynamicsOneThreadShared<<<gridDim, blockDim>>>(
+			weightMatrixDevice.getDevPtr(),
+			weightMatrixDevice.getPitchElements(),
+			currInputPtr,
+			currOutputPtr,
+			nNeurons
+		)
+	));
+}
+
+void runPhaseSynchronization(DeviceScopedPtr2D<int> &gt, int steps, DeviceScopedPtr2D<int> &hits, int nNeurons){
+	dim3 blockDim(32, 8);
+	dim3 gridDim(divRoundUp(nNeurons, blockDim.x), divRoundUp(nNeurons, blockDim.y));
+	checkKernelRun((
+		phaseSyncCheckInplace<<<gridDim, blockDim>>>(
+			gt.getDevPtr(),
+			gt.getPitchElements(),
+			steps,
+			hits.getDevPtr(),
+			hits.getPitchElements(),
+			nNeurons
+		)
+	));
+}
+
+void runFragmentarySynchronization(
+	DeviceScopedPtr2D<float> &bufferedValues, 
+	int steps, 
+	DeviceScopedPtr2D<int> &hits, 
+	int nNeurons, 
+	const float fragmentaryEPS
+) {
+	dim3 blockDim(32, 8);
+	dim3 gridDim(divRoundUp(nNeurons, blockDim.x), divRoundUp(nNeurons, blockDim.y));
+
+	checkKernelRun((
+		fragmentaryAnalysis<<<gridDim, blockDim>>>(
+			bufferedValues.getDevPtr(),
+			bufferedValues.getPitchElements(),
+			steps,
+			hits.getDevPtr(),
+			hits.getPitchElements(),
+			nNeurons,
+			fragmentaryEPS
+		)
+	));
+}
+
+}
+
 std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int nNeurons,
 	const std::vector<float> &weightMatrixHost,
@@ -350,75 +450,10 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 
 		for (int i = 0; i < startObservationTime; i++) {
 			if (useSingleThreadPerNeuron) {
-				dim3 blockDimFm1(FM_X, FM_Y);
-				dim3 gridDimFm1(divRoundUp(nNeurons, blockDimFm1.x), 1);
-				checkKernelRun((
-					calcDynamicsFm1<<<gridDimFm1, blockDimFm1>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
+				cuda_impl::runThreadPerNeuron(weightMatrixDevice, currInputPtr, currOutputPtr, nNeurons);
 			} else {
-				dim3 blockDim(256);
-				dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
-
-				checkKernelRun((
-					calcDynamicsOneThreadShared<<<gridDim, blockDim>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
+				cuda_impl::runXThreads(weightMatrixDevice, currInputPtr, currOutputPtr, nNeurons);
 			}
-			/*
-			{
-				dim3 blockDim(256);
-				dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
-
-				checkKernelRun((
-					calcDynamicsOneThread<<<gridDim, blockDim>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
-			}
-
-			{
-				dim3 blockDimFm1(FM_X, FM_Y);
-				dim3 gridDimFm1(divRoundUp(nNeurons, blockDimFm1.x), 1);
-				checkKernelRun((
-					calcDynamicsFm1<<<gridDimFm1, blockDimFm1>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
-			}
-
-			{
-				dim3 calcBlockDim4(NEURON_ZONE, N_OUTPUTS);
-				dim3 calcGridDim4(divRoundUp(nNeurons, calcBlockDim4.y), 1);
-				checkKernelRun((
-					calcDynamicsShared4Shared<<<calcGridDim4, calcBlockDim4>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
-			}
-			*/
 			std::swap(currInputPtr, currOutputPtr);
 		}
 
@@ -450,88 +485,33 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 
 		int currentStep = 0;
 		for (int i = 0; i < nIterations; i++) {
-			// fragmentary synchronization if needed
 			if (syncType == FRAGMENTARY && currentStep == N_STEPS)  {
-				dim3 blockCheck(32, 8);
-				dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
-
-				checkKernelRun((
-					fragmentaryAnalysis<<<gridCheck, blockCheck>>>(
-						bufferedValues.getDevPtr(),
-						bufferedValues.getPitchElements(),
-						N_STEPS,
-						hits.getDevPtr(),
-						hits.getPitchElements(),
-						nNeurons,
-						fragmentaryEPS
-					)
-				));
-				
+				cuda_impl::runFragmentarySynchronization(bufferedValues, currentStep, hits, nNeurons, fragmentaryEPS);
 				currentStep = 0;
 			}
 
-			// computing
 			if (useSingleThreadPerNeuron) {
-				// Запускать желательно с блоком 32x16, но вероятно потянет и 32x8, и 32x32.
-				// Грид (nNeurons + 31 / 32, 1)
-				dim3 blockDimFm1(FM_X, FM_Y);
-				dim3 gridDimFm1(divRoundUp(nNeurons, blockDimFm1.x), 1);
-				checkKernelRun((
-					calcDynamicsFm1<<<gridDimFm1, blockDimFm1>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
+				cuda_impl::runThreadPerNeuron(weightMatrixDevice, currInputPtr, currOutputPtr, nNeurons);
 			} else {
-				dim3 calcBlockDim4(NEURON_ZONE, N_OUTPUTS);
-				dim3 calcGridDim4(divRoundUp(nNeurons, calcBlockDim4.y), 1);
-				checkKernelRun((
-					calcDynamicsShared4Shared<<<calcGridDim4, calcBlockDim4>>>(
-						weightMatrixDevice.getDevPtr(),
-						weightMatrixDevice.getPitchElements(),
-						currInputPtr,
-						currOutputPtr,
-						nNeurons
-					)
-				));
+				cuda_impl::runXThreads(weightMatrixDevice, currInputPtr, currOutputPtr, nNeurons);
 			}
 		
-			{
-				dim3 blockDim(256);
-				dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
-				checkKernelRun((
-					prepareToSynchronizationCheck<<<gridDim, blockDim>>>(
-						currInputPtr,
-						currOutputPtr,
-						gt.getDevPtr() + gt.getPitchElements() * currentStep,
-						bufferedValues.getDevPtr() + bufferedValues.getPitchElements() * currentStep,
-						nNeurons
-					)
-				));
-				currentStep++;
-			}
+			dim3 blockDim(256);
+			dim3 gridDim(divRoundUp(nNeurons, blockDim.x));
+			checkKernelRun((
+				prepareToSynchronizationCheck<<<gridDim, blockDim>>>(
+					currInputPtr,
+					currOutputPtr,
+					gt.getDevPtr() + gt.getPitchElements() * currentStep,
+					bufferedValues.getDevPtr() + bufferedValues.getPitchElements() * currentStep,
+					nNeurons
+				)
+			));
+			currentStep++;
 
-			// phase synchronization if needed
-			if (syncType == PHASE) {
-				
-				if (currentStep == N_STEPS) {
-					dim3 blockCheck(32, 8);
-					dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
-					checkKernelRun((
-						phaseSyncCheckInplace<<<gridCheck, blockCheck>>>(
-							gt.getDevPtr(),
-							gt.getPitchElements(),
-							N_STEPS,
-							hits.getDevPtr(),
-							hits.getPitchElements(),
-							nNeurons
-						)
-					));
-					currentStep = 0;
-				}
+			if (syncType == PHASE && currentStep == N_STEPS) {
+				cuda_impl::runPhaseSynchronization(gt, currentStep, hits, nNeurons); 
+				currentStep = 0;
 			}
 
 			// copying neuron's outputs to host for sheets
@@ -540,44 +520,20 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 			} else {
 				input.copyToHost(&sheet[i * nNeurons], nNeurons);
 			}
-			// swapping pointers of input/output
+			
 			std::swap(currInputPtr, currOutputPtr);
 		}
 
 		// for phase synchronization if needed to procede remained
 		if (currentStep != 0) {
 			if (syncType == PHASE) {
-				dim3 blockCheck(32, 8);
-				dim3 gridCheck(divRoundUp(nNeurons, blockCheck.x), divRoundUp(nNeurons, blockCheck.y));
-				checkKernelRun((
-					phaseSyncCheckInplace<<<gridCheck, blockCheck>>>(
-						gt.getDevPtr(),
-						gt.getPitchElements(),
-						currentStep,
-						hits.getDevPtr(),
-						hits.getPitchElements(),
-						nNeurons
-					)
-				));
-				currentStep = 0;
+				cuda_impl::runPhaseSynchronization(gt, currentStep, hits, nNeurons); 
 			} else if (syncType == FRAGMENTARY) {
-				dim3 fragBlockDim(32, 8);
-				dim3 fragGridDim(divRoundUp(nNeurons, fragBlockDim.x), divRoundUp(nNeurons, fragBlockDim.y));
-				
-				checkKernelRun((
-					fragmentaryAnalysis<<<fragGridDim, fragBlockDim>>>(
-						bufferedValues.getDevPtr(),
-						bufferedValues.getPitchElements(),
-						currentStep,
-						hits.getDevPtr(),
-						hits.getPitchElements(),
-						nNeurons,
-						fragmentaryEPS
-					)
-				));
+				cuda_impl::runFragmentarySynchronization(bufferedValues, currentStep, hits, nNeurons, fragmentaryEPS);
 			} else {
 				throw std::logic_error("unknown sync type");
 			}
+			currentStep = 0;
 		}
 		std::vector<int> hitsHost(nNeurons * nNeurons);
 		hits.copyToHost(&hitsHost[0], nNeurons, nNeurons, nNeurons);

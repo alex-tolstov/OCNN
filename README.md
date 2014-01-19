@@ -3,18 +3,14 @@ OCNN
 
 A project for CUDA implementation of Oscillarory Chaotic Neural Network
 
-Current C++ and Java versions are test ones.
+Folder 'java' is for test of Voronoi diagram computing by Fortune's algorithm.
 
-You can use it as you wish.
+Folder 'cpp' contains Microsoft Visual C++ Project. The idea of the project is 
+to implement OCNN for CUDA videocards, to make visualisation of results, 
+to provide usage of FCPS clustering database.
 
-Some known troubles:
-1) problem with accuracy - if input data consists of numbers of wide range, it could be a crash or another problem.
-2) implemented algorithm is Fortune's one. It has complexity O(N log N), but there is a constant appeared due to creating objects,
-heavyweight geometric operations, etc. In future, there will be more optimized version. Now it works ~2 seconds (Java) on my laptop
-with Intel Core i3 (Sandy Bridge, mobile).
-3) in nearest few days there will be an implementation of chaotic neural network (idea by Zhukova and Benderskaya) using NVIDIA CUDA C,
-coupled with Voronoi diagram implementation.
+Also it uses binaries of qhull library to compute Delaunay alrogithm in O(N log N).
 
-
-Have a nice day,
-Alex Tolstov.
+There are some implementations - using CUDA or using CPU (speedy version, using OpenMP and
+vectorization techniques if compiled by Intel Composer XE). CUDA is 8x times faster on
+comparable devices - GTX 580 vs Intel i7 920.

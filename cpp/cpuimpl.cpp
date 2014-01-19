@@ -22,10 +22,13 @@ inline float logistic(float signal) {
 
 void calcDynamicsOneThread(
 	const std::vector<float> &weightMatrix,
+	int globalPitchElements,
 	const float *neuronInput,
 	float *output,
 	const int nNeurons
 ) {
+//	TimerMillisPrecision timer;
+//	timer.start();
 	#pragma omp parallel for
 	for (int neuronIdx = 0; neuronIdx < nNeurons; neuronIdx++) {
 		float sum = 0.0f;
@@ -33,30 +36,36 @@ void calcDynamicsOneThread(
 	
 		for (int other = 0; other < nNeurons; other++) {
 			float prev = neuronInput[other];
-			float w = weightMatrix[neuronIdx * nNeurons + other];
+			float w = weightMatrix[neuronIdx * globalPitchElements + other];
 			norm += w;
 			sum  += prev * w;
 		}
 		output[neuronIdx] = logistic((1.0f / norm) * sum);
 	}
+//	printf("calc dynamics: %u ms\r\n", timer.get_elapsed_time_ms());
 }
 
 
 
-void phaseSyncCheckInplace(int *currGT, int nSteps, int *hits, int nNeurons) {
-	for (int step = 0; step < nSteps; step++) {
-		const int shift = step * nNeurons;
+void phaseSyncCheckInplace(int *currGT, int globalPitchElements, int nSteps, int *hits, int nNeurons) {
+//	TimerMillisPrecision timer;
+//	timer.start();
 		#pragma omp parallel for
 		for (int neuronIdxFirst = 0; neuronIdxFirst < nNeurons; neuronIdxFirst++) {
-			int first = currGT[shift + neuronIdxFirst];
 			for (int neuronIdxSecond = 0; neuronIdxSecond < nNeurons; neuronIdxSecond++) {
-				int second = currGT[shift + neuronIdxSecond];
-				if (first == second) {
-					hits[neuronIdxFirst * nNeurons + neuronIdxSecond]++;
+				int count = 0;
+				for (int step = 0; step < nSteps; step++) {
+					const int shift = step * globalPitchElements;
+					int first = currGT[shift + neuronIdxFirst];
+					int second = currGT[shift + neuronIdxSecond];
+					if (first == second) {
+						count++;
+					}
 				}
+				hits[neuronIdxFirst * globalPitchElements + neuronIdxSecond]++;
 			}
 		}
-	}
+//	printf("phase sycn check inplace: %u ms\r\n", timer.get_elapsed_time_ms());
 }
 
 
@@ -88,20 +97,20 @@ inline float fabsf(float val) {
 	return val;
 }
 
-void fragmentaryAnalysis(float *currOutput, int nSteps, int *hits, int nNeurons, const float eps) {
+void fragmentaryAnalysis(float *currOutput, int globalPitchElements, int nSteps, int *hits, int nNeurons, const float eps) {
 	#pragma omp parallel for
 	for (int neuronIdxFirst = 0; neuronIdxFirst < nNeurons; neuronIdxFirst++) {
 		for (int neuronIdxSecond = 0; neuronIdxSecond < nNeurons; neuronIdxSecond++) {
 			int count = 0;
 			for (int step = 0; step < nSteps; step++) {
-				float first = currOutput[step * nNeurons + neuronIdxFirst];
-				float second = currOutput[step * nNeurons + neuronIdxSecond];
+				float first = currOutput[step * globalPitchElements + neuronIdxFirst];
+				float second = currOutput[step * globalPitchElements + neuronIdxSecond];
 				float diff = fabsf(first - second);
 				if (diff < eps) {
 					count++;
 				}
 			}
-			hits[neuronIdxFirst * nNeurons + neuronIdxSecond] += count;
+			hits[neuronIdxFirst * globalPitchElements + neuronIdxSecond] += count;
 		}
 	}
 }
@@ -125,6 +134,7 @@ void debugPrintArray(std::vector<float> &vals) {
 }
 
 } // namespace cpu
+
 /*
 std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	int nNeurons,
@@ -137,10 +147,11 @@ std::vector<int> processOscillatoryChaoticNetworkDynamics(
 	bool v
 )
 {
-	return std::vector<int>(10);
+	throw std::logic_error("error call of cuda function in cpu mode");
 }
-
 */
+
+
 
 std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 	int nNeurons,
@@ -156,7 +167,21 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 		check(nNeurons > 0);
 		check(startObservationTime >= 0);
 
+		int globalPitchElements = nNeurons;
+		if (nNeurons % 32 != 0) {
+			globalPitchElements += 32;
+			globalPitchElements -= globalPitchElements % 32;
+		}
+
 		check(weightMatrixHost.size() == nNeurons * nNeurons);
+
+		std::vector<float> weightMatrix(globalPitchElements * nNeurons);
+		#pragma omp parallel for
+		for (int i = 0; i < nNeurons; i++) {
+			for (int j = 0; j < nNeurons; j++) {
+				weightMatrix[i * globalPitchElements + j] = weightMatrixHost[i * nNeurons + j];
+			}
+		}
 
 		std::vector<float> input(nNeurons);
 		std::vector<float> output(nNeurons);
@@ -168,7 +193,8 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 
 		for (int i = 0; i < startObservationTime; i++) {
 			cpu::calcDynamicsOneThread(
-				weightMatrixHost,
+				weightMatrix,
+				globalPitchElements,
 				currInputPtr,
 				currOutputPtr,
 				nNeurons
@@ -176,11 +202,11 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 			std::swap(currInputPtr, currOutputPtr);
 		}
 
-		std::vector<int> hits(nNeurons * nNeurons, 0);
+		std::vector<int> hits(nNeurons * globalPitchElements, 0);
 
 		const int N_STEPS = 64;	
-		std::vector<int> gt(nNeurons * N_STEPS, 0);
-		std::vector<float> bufferedValues(nNeurons * N_STEPS, 0.0f);
+		std::vector<int> gt(globalPitchElements * N_STEPS, 0);
+		std::vector<float> bufferedValues(globalPitchElements * N_STEPS, 0.0f);
 
 		sheet.resize(nIterations * nNeurons);
 
@@ -191,6 +217,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 			if (syncType == FRAGMENTARY && currentStep == N_STEPS)  {
 				cpu::fragmentaryAnalysis(
 					&bufferedValues[0],
+					globalPitchElements,
 					N_STEPS,
 					&hits[0],
 					nNeurons,
@@ -201,7 +228,8 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 
 			// computing
 			cpu::calcDynamicsOneThread(
-				weightMatrixHost,
+				weightMatrix,
+				globalPitchElements,
 				currInputPtr,
 				currOutputPtr,
 				nNeurons
@@ -210,8 +238,8 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 			cpu::prepareToSynchronizationCheck(
 				currInputPtr,
 				currOutputPtr,
-				&gt[0] + nNeurons * currentStep,
-				&bufferedValues[0] + nNeurons * currentStep,
+				&gt[0] + globalPitchElements * currentStep,
+				&bufferedValues[0] + globalPitchElements * currentStep,
 				nNeurons
 			);
 			currentStep++;
@@ -221,6 +249,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 				if (currentStep == N_STEPS) {
 					cpu::phaseSyncCheckInplace(
 						&gt[0],
+						globalPitchElements,
 						N_STEPS,
 						&hits[0],
 						nNeurons
@@ -245,6 +274,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 			if (syncType == PHASE) {
 				cpu::phaseSyncCheckInplace(
 					&gt[0],
+					globalPitchElements,
 					currentStep,
 					&hits[0],
 					nNeurons
@@ -253,6 +283,7 @@ std::vector<int> processOscillatoryChaoticNetworkDynamicsCPU(
 			} else if (syncType == FRAGMENTARY) {
 				cpu::fragmentaryAnalysis(
 					currInputPtr,
+					globalPitchElements,
 					currentStep,
 					&hits[0],
 					nNeurons,
